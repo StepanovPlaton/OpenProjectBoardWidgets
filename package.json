@@ -1,0 +1,26 @@
+{
+  "name": "op-board-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cross-env BROWSER=chrome vite",
+    "dev:chrome": "cross-env BROWSER=chrome vite",
+    "dev:firefox": "cross-env BROWSER=firefox vite",
+    "build": "npm run build:chrome && npm run build:firefox",
+    "build:chrome": "tsc --noEmit && cross-env BROWSER=chrome vite build",
+    "build:firefox": "tsc --noEmit && cross-env BROWSER=firefox vite build && node scripts/adapt-firefox-manifest.mjs",
+    "pack": "npm run pack:chrome && npm run pack:firefox",
+    "pack:chrome": "node scripts/pack-extension.mjs chrome",
+    "pack:firefox": "node scripts/pack-extension.mjs firefox",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^26.1.1",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}

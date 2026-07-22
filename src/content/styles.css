@@ -1,0 +1,518 @@
+/* Native highlighting strip on OP cards */
+.op-board-ext-hide-strip .op-wp-single-card--highlighting,
+.op-board-ext-hide-strip wp-single-card .op-wp-single-card--highlighting,
+.op-board-ext-hide-strip .op-wp-single-card--highlight,
+.op-board-ext-hide-strip [class*="__hl_background_"] {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  background: none !important;
+}
+
+.op-board-ext-card,
+.op-board-ext-surface {
+  position: relative;
+}
+
+/* Keep native project-name in layout; we only replace its text with department */
+.op-board-ext-dept-slot {
+  /* match native project-name look */
+  max-width: 100%;
+}
+
+/* Kill residual space if an old hide-class is still present */
+.op-board-ext-hide-project {
+  display: none !important;
+}
+
+/* Ensure id line sits on the natural content left edge */
+.op-board-ext-surface .op-wp-single-card--content-id {
+  margin-left: 0 !important;
+}
+
+.op-board-ext-surface .op-wp-single-card--content-project-name.op-board-ext-dept-slot {
+  margin-left: 0 !important;
+}
+
+/* Priority before avatar, SP after — same row, same height (avatar mini = 20px) */
+.op-board-ext-assignee.op-wp-single-card--content-assignee,
+.op-board-ext-surface op-principal.op-board-ext-assignee {
+  display: inline-flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  max-width: none !important;
+  overflow: visible !important;
+}
+
+.op-board-ext-priority {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-shadow: none;
+  flex-shrink: 0;
+  order: -1;
+  box-sizing: border-box;
+}
+
+.op-board-ext-sp,
+.op-board-ext-ci {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 24px;
+  min-height: 24px;
+  max-height: 24px;
+  padding: 0 7px;
+  padding-left: 4px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--body-font-color, currentColor);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.op-board-ext-ci {
+  border-color: currentColor;
+}
+
+.op-board-ext-ci--ok {
+  color: #2e7d32;
+  border-color: #2e7d32;
+  background: rgba(46, 125, 50, 0.06);
+}
+
+.op-board-ext-ci--failed {
+  color: #c62828;
+  border-color: #c62828;
+  background: rgba(198, 40, 40, 0.06);
+}
+
+.op-board-ext-sp-icon,
+.op-board-ext-ci-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.op-board-ext-sp-icon svg,
+.op-board-ext-ci-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.op-board-ext-sp-value,
+.op-board-ext-ci-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Blockers overlay the native details (i) button in-place.
+ * Do NOT reposition .op-wp-single-card--card-actions — that moves the i icon.
+ */
+.op-board-ext-surface.op-board-ext-has-blockers .op-wp-single-card--card-actions,
+.op-board-ext-surface.op-board-ext-has-blockers .op-wp-single-card--inline-buttons {
+  /* keep native position; only force visibility so the checkmark is seen at rest */
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.op-board-ext-surface.op-board-ext-has-blockers .op-icon--wrapper {
+  margin-left: 10px !important;
+}
+
+.op-board-ext-surface.op-board-ext-has-blockers .op-board-ext-details-btn,
+.op-board-ext-surface.op-board-ext-has-blockers .op-wp-single-card--details-button {
+  position: relative;
+}
+
+.op-board-ext-surface.op-board-ext-has-blockers .op-board-ext-details-btn > .op-icon--wrapper,
+.op-board-ext-surface.op-board-ext-has-blockers .op-wp-single-card--details-button > .op-icon--wrapper,
+.op-board-ext-surface.op-board-ext-has-blockers .op-board-ext-details-btn > i,
+.op-board-ext-surface.op-board-ext-has-blockers .op-wp-single-card--details-button > .icon3 {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.op-board-ext-surface.op-board-ext-has-blockers:hover .op-board-ext-details-btn > .op-icon--wrapper,
+.op-board-ext-surface.op-board-ext-has-blockers:hover .op-wp-single-card--details-button > .op-icon--wrapper,
+.op-board-ext-surface.op-board-ext-has-blockers:hover .op-board-ext-details-btn > i,
+.op-board-ext-surface.op-board-ext-has-blockers:hover .op-wp-single-card--details-button > .icon3 {
+  opacity: 1;
+}
+
+.op-board-ext-blockers {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  opacity: 1;
+}
+
+.op-board-ext-surface.op-board-ext-has-blockers:hover .op-board-ext-blockers {
+  opacity: 0;
+}
+
+.op-board-ext-blockers--ok {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid rgba(46, 125, 50, 0.35);
+}
+
+.op-board-ext-blockers--blocked {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid rgba(198, 40, 40, 0.35);
+}
+
+.op-board-ext-time {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  z-index: 4;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  opacity: 0.72;
+  color: var(--body-font-color, #555);
+  pointer-events: none;
+  max-width: 45%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Stale board banner */
+#op-board-ext-stale-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #1c2330;
+  color: #fff;
+  font: 600 13px/1.3 "Segoe UI", system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+#op-board-ext-stale-banner button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+  cursor: pointer;
+}
+
+#op-board-ext-stale-banner .op-board-ext-stale-reload {
+  background: #4caf50;
+  color: #fff;
+}
+
+#op-board-ext-stale-banner .op-board-ext-stale-dismiss {
+  background: transparent;
+  color: #c5cdd8;
+}
+
+.work-package--single-view.op-board-ext-overview-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-group {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 10px;
+  background: rgba(246, 248, 250, 0.75);
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-group--header {
+  margin-bottom: 10px;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-group--header-text {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-group--attributes {
+  display: grid;
+  gap: 0;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .wp-attribute-group--attribute {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 0px 12px;
+  align-items: start;
+  padding: 0;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .wp-attribute-group--attribute + .wp-attribute-group--attribute {
+  border-top: 1px solid rgba(31, 35, 40, 0.08);
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-key-value--key,
+.work-package--single-view.op-board-ext-overview-compact .attributes-key-value--value-container {
+  min-width: 0;
+  padding: 0;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-key-value--key {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--fgColor-muted, #59636e);
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-key-value--value-container {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .wp-attribute-group--attribute-value-container {
+  min-height: 0;
+}
+
+.work-package--single-view.op-board-ext-overview-compact
+  .wp-attribute-group--attribute-value-container
+  .inline-edit--container {
+  margin-bottom: 0;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .op-principal {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 28px;
+  overflow: visible;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .op-avatar,
+.work-package--single-view.op-board-ext-overview-compact .op-principal--avatar {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+
+.work-package--single-view.op-board-ext-overview-compact
+  .wp-attribute-group--attribute:has(.op-principal),
+.work-package--single-view.op-board-ext-overview-compact
+  .wp-attribute-group--attribute:has(.op-avatar),
+.work-package--single-view.op-board-ext-overview-compact
+  .wp-attribute-group--attribute:has(.op-principal--avatar) {
+  gap: 8px 12px;
+  padding: 8px 0;
+  align-items: center;
+  min-height: 40px;
+  overflow: visible;
+}
+
+.work-package--single-view.op-board-ext-overview-compact
+  .wp-attribute-group--attribute:has(.op-principal)
+  .wp-attribute-group--attribute-value-container,
+.work-package--single-view.op-board-ext-overview-compact
+  .wp-attribute-group--attribute:has(.op-principal)
+  .inline-edit--container,
+.work-package--single-view.op-board-ext-overview-compact
+  .wp-attribute-group--attribute:has(.op-principal)
+  .inline-edit--display-field {
+  min-height: 28px;
+  overflow: visible;
+  line-height: normal;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .inline-edit--display-field.-placeholder,
+.work-package--single-view.op-board-ext-overview-compact .custom-option.-empty {
+  color: var(--fgColor-muted, #59636e);
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-group[data-group-name="Люди"] .wp-attribute-group--attribute {
+  grid-template-columns: minmax(96px, 132px) minmax(0, 1fr);
+  gap: 0px 12px;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-group[data-group-name="Детали"] .wp-attribute-group--attribute {
+  grid-template-columns: minmax(96px, 124px) minmax(0, 1fr);
+}
+
+.work-package--single-view.op-board-ext-overview-compact .attributes-group[data-group-name="Детали"] .inline-edit--display-field.combinedDate {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.work-package--single-view.op-board-ext-overview-compact .op-board-ext-overview-section-mount {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 8px;
+}
+
+.op-board-ext-overview-status {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.op-board-ext-overview-status_loading {
+  color: #44505c;
+  background: rgba(208, 215, 222, 0.28);
+  border: 1px solid rgba(31, 35, 40, 0.08);
+}
+
+.op-board-ext-overview-status_error {
+  color: #cf222e;
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+}
+
+.op-board-ext-overview-section {
+  padding: 12px 14px;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 10px;
+  background: rgba(246, 248, 250, 0.75);
+}
+
+.op-board-ext-overview-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.op-board-ext-overview-list {
+  display: grid;
+  gap: 10px;
+}
+
+.op-board-ext-overview-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.op-board-ext-overview-item + .op-board-ext-overview-item {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.op-board-ext-overview-item-top,
+.op-board-ext-overview-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.op-board-ext-overview-link {
+  min-width: 0;
+  font-weight: 600;
+  color: var(--link-color, #0969da);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.op-board-ext-overview-link:hover {
+  text-decoration: underline;
+}
+
+.op-board-ext-overview-subtext,
+.op-board-ext-overview-empty {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fgColor-muted, #59636e);
+}
+
+.op-board-ext-overview-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+
+.op-board-ext-overview-pill_relation,
+.op-board-ext-overview-pill_muted {
+  color: #44505c;
+  background: rgba(208, 215, 222, 0.35);
+  border-color: rgba(31, 35, 40, 0.08);
+}
+
+.op-board-ext-overview-pill_success {
+  color: #1a7f37;
+  background: rgba(46, 160, 67, 0.12);
+  border-color: rgba(46, 160, 67, 0.28);
+}
+
+.op-board-ext-overview-pill_danger {
+  color: #cf222e;
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.28);
+}
+
+/* Quick board filters next to native Filter button */
+.op-board-ext-quick-filter {
+  white-space: nowrap;
+}
+
+.op-board-ext-quick-filter.-active {
+  background: var(--button-default-background-color--active, rgba(26, 115, 232, 0.12));
+  border-color: var(--button-default-border-color--active, #1a73e8);
+  color: var(--button-default-font-color--active, #1a73e8);
+  font-weight: 600;
+}
+
+.op-board-ext-quick-filter:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
