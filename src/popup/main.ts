@@ -163,9 +163,14 @@ function readForm(): Settings {
         .filter(Boolean),
       treatClosedAsDone: el<HTMLInputElement>("treatClosedAsDone").checked,
     },
+    reworkReturns: {
+      enabled: el<HTMLInputElement>("reworkReturnsEnabled").checked,
+    },
+    notifications: {
+      enabled: el<HTMLInputElement>("notificationsEnabled").checked,
+    },
     columnTime: {
       enabled: el<HTMLInputElement>("columnTimeEnabled").checked,
-      format: el<HTMLSelectElement>("columnTimeFormat").value === "full" ? "full" : "short",
     },
   };
 }
@@ -186,8 +191,11 @@ function fillForm(settings: Settings): void {
   el<HTMLTextAreaElement>("doneStatuses").value = settings.blockers.doneStatusNames.join("\n");
   el<HTMLInputElement>("treatClosedAsDone").checked = settings.blockers.treatClosedAsDone;
 
+  el<HTMLInputElement>("reworkReturnsEnabled").checked = settings.reworkReturns.enabled;
+
+  el<HTMLInputElement>("notificationsEnabled").checked = settings.notifications.enabled;
+
   el<HTMLInputElement>("columnTimeEnabled").checked = settings.columnTime.enabled;
-  el<HTMLSelectElement>("columnTimeFormat").value = settings.columnTime.format;
 }
 
 async function init(): Promise<void> {

@@ -5,7 +5,10 @@ import {
   fetchGithubPullRequestOverview,
 } from "../shared/api/githubPullRequests";
 import { resolveBoardSprintValues } from "../shared/api/boardSprint";
-import { buildBoardSnapshotHash } from "../shared/api/boardSnapshot";
+import {
+  fetchUnreadNotifications,
+  markWorkPackageNotificationsRead,
+} from "../shared/api/notifications";
 import { fetchPriorities } from "../shared/api/priorities";
 import { fetchRelations } from "../shared/api/relations";
 import { fetchPopupSettingsOptions } from "../shared/api/settingsOptions";
@@ -17,6 +20,7 @@ import type {
   CardEnrichment,
   CiSummary,
   GithubPullRequestOverviewItem,
+  NotificationSummary,
   PriorityInfo,
   RelationOverviewItem,
   Settings,
@@ -26,12 +30,14 @@ import type {
 import { computeBlockersOk } from "../shared/widgets/blockers";
 import { formatDepartmentLabel } from "../shared/widgets/department";
 import { resolvePriorityDisplay } from "../shared/widgets/priority";
+import { countReworkReturns } from "../shared/widgets/reworkReturns";
 
 const WP_TTL_MS = 60_000;
 const PRIORITY_TTL_MS = 10 * 60_000;
 const RELATIONS_TTL_MS = 90_000;
 const ACTIVITIES_TTL_MS = 120_000;
 const GITHUB_CI_TTL_MS = 60_000;
+const NOTIFICATIONS_TTL_MS = 20_000;
 
 interface CacheEntry<T> {
   value: T;
@@ -43,6 +49,7 @@ const relationsCache = new Map<number, CacheEntry<number[]>>();
 const activitiesCache = new Map<number, CacheEntry<Record<string, unknown>[]>>();
 const githubCiCache = new Map<number, CacheEntry<CiSummary | null>>();
 let prioritiesCache: CacheEntry<PriorityInfo[]> | null = null;
+let notificationsCache: CacheEntry<NotificationSummary[]> | null = null;
 
 function getCached<T>(map: Map<number, CacheEntry<T>>, id: number): T | null {
   const entry = map.get(id);
@@ -64,6 +71,7 @@ function clearAllCaches(): void {
   activitiesCache.clear();
   githubCiCache.clear();
   prioritiesCache = null;
+  notificationsCache = null;
 }
 
 function clientFromSettings(settings: Settings): OpenProjectClient {
@@ -233,17 +241,24 @@ async function enrichCards(ids: number[]): Promise<Record<string, CardEnrichment
     }
 
     let columnTimeText: string | null = null;
-    if (settings.columnTime.enabled) {
+    let reworkReturns: number | null = null;
+    const needActivities = settings.columnTime.enabled || settings.reworkReturns.enabled;
+    if (needActivities) {
       try {
         const activities = await getActivities(client, id);
-        columnTimeText = computeColumnTimeText(
-          activities,
-          wp.statusName,
-          wp.createdAt,
-          settings.columnTime.format,
-        );
+        if (settings.columnTime.enabled) {
+          columnTimeText = computeColumnTimeText(
+            activities,
+            wp.statusName,
+            wp.createdAt,
+          );
+        }
+        if (settings.reworkReturns.enabled) {
+          reworkReturns = countReworkReturns(activities, settings.blockers.doneStatusNames);
+        }
       } catch {
-        columnTimeText = "?";
+        if (settings.columnTime.enabled) columnTimeText = "?";
+        if (settings.reworkReturns.enabled) reworkReturns = null;
       }
     }
 
@@ -256,6 +271,7 @@ async function enrichCards(ids: number[]): Promise<Record<string, CardEnrichment
       ciSummary,
       blockersOk,
       columnTimeText,
+      reworkReturns,
     };
   });
 
@@ -265,31 +281,39 @@ async function enrichCards(ids: number[]): Promise<Record<string, CardEnrichment
   return enrichments;
 }
 
-async function boardSnapshot(ids: number[]): Promise<{ snapshotHash: string; ids: number[] }> {
+async function getUnreadNotifications(force = false): Promise<NotificationSummary[]> {
+  if (!force && notificationsCache && Date.now() < notificationsCache.expiresAt) {
+    return notificationsCache.value;
+  }
   const settings = await loadSettings();
   const client = clientFromSettings(settings);
-  const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
+  const notifications = await fetchUnreadNotifications(client);
+  notificationsCache = { value: notifications, expiresAt: Date.now() + NOTIFICATIONS_TTL_MS };
+  return notifications;
+}
 
-  // Always hit API (no cache) so staleness detection is accurate
-  const workPackages = await fetchWorkPackagesByIds(client, unique, {
-    departmentField: settings.department.field,
-    storyPointsField: settings.storyPoints.field,
+async function markWpNotificationsRead(
+  workPackageId: number,
+  notificationIds: number[] = [],
+): Promise<NotificationSummary[]> {
+  const settings = await loadSettings();
+  const client = clientFromSettings(settings);
+  const cachedIds =
+    notificationIds.length > 0
+      ? notificationIds
+      : (notificationsCache?.value ?? [])
+          .filter((n) => n.workPackageId === workPackageId)
+          .map((n) => n.id);
+
+  console.log("[op-board-ext:bg] MARK_WP_NOTIFICATIONS_READ", {
+    workPackageId,
+    notificationIds: cachedIds,
   });
 
-  const items = unique.map((id) => {
-    const wp = workPackages.get(id);
-    return {
-      id,
-      updatedAt: wp?.updatedAt ?? null,
-      lockVersion: wp?.lockVersion ?? null,
-      statusId: wp?.statusId ?? null,
-      statusName: wp?.statusName ?? "",
-    };
-  });
-  return {
-    snapshotHash: buildBoardSnapshotHash(items),
-    ids: unique,
-  };
+  await markWorkPackageNotificationsRead(client, workPackageId, cachedIds);
+
+  notificationsCache = null;
+  return getUnreadNotifications(true);
 }
 
 async function getWorkPackageOverviewExtras(workPackageId: number): Promise<WorkPackageOverviewExtras> {
@@ -394,9 +418,17 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
           respond({ ok: true, overviewExtras });
           break;
         }
-        case "BOARD_SNAPSHOT": {
-          const snapshot = await boardSnapshot(message.ids);
-          respond({ ok: true, ...snapshot });
+        case "GET_UNREAD_NOTIFICATIONS": {
+          const notifications = await getUnreadNotifications(true);
+          respond({ ok: true, notifications });
+          break;
+        }
+        case "MARK_WP_NOTIFICATIONS_READ": {
+          const notifications = await markWpNotificationsRead(
+            message.workPackageId,
+            message.notificationIds ?? [],
+          );
+          respond({ ok: true, notifications });
           break;
         }
         case "RESOLVE_BOARD_SPRINT": {

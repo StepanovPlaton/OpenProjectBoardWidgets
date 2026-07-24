@@ -36,7 +36,12 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   columnTime: {
     enabled: true,
-    format: "short",
+  },
+  reworkReturns: {
+    enabled: true,
+  },
+  notifications: {
+    enabled: true,
   },
   hideNativeStrip: true,
   overviewRedesign: true,
@@ -59,6 +64,8 @@ function mergeSettings(raw: unknown): Settings {
   const storyPoints = isObject(raw.storyPoints) ? raw.storyPoints : {};
   const blockers = isObject(raw.blockers) ? raw.blockers : {};
   const columnTime = isObject(raw.columnTime) ? raw.columnTime : {};
+  const reworkReturns = isObject(raw.reworkReturns) ? raw.reworkReturns : {};
+  const notifications = isObject(raw.notifications) ? raw.notifications : {};
 
   return {
     connection: {
@@ -94,7 +101,14 @@ function mergeSettings(raw: unknown): Settings {
     },
     columnTime: {
       enabled: typeof columnTime.enabled === "boolean" ? columnTime.enabled : base.columnTime.enabled,
-      format: columnTime.format === "full" || columnTime.format === "short" ? columnTime.format : base.columnTime.format,
+    },
+    reworkReturns: {
+      enabled:
+        typeof reworkReturns.enabled === "boolean" ? reworkReturns.enabled : base.reworkReturns.enabled,
+    },
+    notifications: {
+      enabled:
+        typeof notifications.enabled === "boolean" ? notifications.enabled : base.notifications.enabled,
     },
     hideNativeStrip: typeof raw.hideNativeStrip === "boolean" ? raw.hideNativeStrip : base.hideNativeStrip,
     overviewRedesign:

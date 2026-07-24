@@ -80,7 +80,7 @@
           Блокеры (все связи)
         </label>
         <label>
-          Статусы «готово» (по одному на строку)
+          Статусы «готово» (по одному на строку) — для блокеров и возвратов
           <textarea id="doneStatuses" rows="3" spellcheck="false"></textarea>
         </label>
         <label class="check">
@@ -91,15 +91,22 @@
 
       <section class="section">
         <label class="check">
+          <input id="reworkReturnsEnabled" type="checkbox" />
+          Возвраты в доработку
+        </label>
+      </section>
+
+      <section class="section">
+        <label class="check">
+          <input id="notificationsEnabled" type="checkbox" />
+          Уведомления на карточках и тосты
+        </label>
+      </section>
+
+      <section class="section">
+        <label class="check">
           <input id="columnTimeEnabled" type="checkbox" />
           Время в колонке
-        </label>
-        <label>
-          Формат
-          <select id="columnTimeFormat">
-            <option value="short">Краткий (42 дня)</option>
-            <option value="full">Полный (2 дня 4 часа)</option>
-          </select>
         </label>
       </section>
 

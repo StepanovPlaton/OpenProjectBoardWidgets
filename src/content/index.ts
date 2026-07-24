@@ -1,16 +1,21 @@
 import { STORAGE_KEY, loadSettings } from "../shared/settings";
 import { sendMessage } from "../shared/messaging";
-import type { BackgroundResponse, Settings } from "../shared/types";
+import type { BackgroundResponse, CardEnrichment, Settings } from "../shared/types";
 import { initBoardFilters, refreshBoardFilters } from "./boardFilters";
 import { findBoardCards, diagnoseCardDom, isExtensionNode } from "./cards";
 import { initOverviewEnhancer, refreshOverviewEnhancer } from "./overview";
-import { applySettingsToDom, renderCard } from "./render";
+import { applySettingsToDom, cardNeedsRestore, renderCard } from "./render";
+import { refreshColumnHeaders, setCardStoryPointsAttr } from "./columnHeaders";
+import {
+  initNotifications,
+  refreshNotificationBadgesOnly,
+  refreshNotifications,
+} from "./notifications";
 
 const LOG = "[op-board-ext]";
 const DEBOUNCE_MS = 400;
 /** Keep batches small so MV3 service worker can answer before the port closes. */
 const ENRICH_CHUNK = 30;
-const STALE_POLL_MS = 60_000;
 const RETRY_FAILED_MS = 5_000;
 /** Angular board often paints after first scan — keep polling briefly. */
 const EMPTY_BOARD_RETRY_MS = 1_000;
@@ -23,10 +28,9 @@ let pendingIds = new Set<number>();
 /** Cards already enriched this page session — don't re-fetch unless settings change */
 const enrichedIds = new Set<number>();
 const failedIds = new Set<number>();
-let baselineHash: string | null = null;
-let staleBannerShown = false;
+/** Last known enrichment per WP — used to restore widgets after Angular DnD re-renders. */
+const enrichmentCache = new Map<number, CardEnrichment>();
 let observerPaused = false;
-let staleTimer: number | null = null;
 let retryTimer: number | null = null;
 let emptyBoardRetries = 0;
 let emptyBoardTimer: number | null = null;
@@ -60,11 +64,15 @@ async function refreshSettings(): Promise<void> {
       department: settings.department.enabled,
       storyPoints: settings.storyPoints.enabled,
       blockers: settings.blockers.enabled,
+      reworkReturns: settings.reworkReturns.enabled,
       columnTime: settings.columnTime.enabled,
+      notifications: settings.notifications.enabled,
     },
   });
   applySettingsToDom(settings);
   refreshBoardFilters();
+  refreshColumnHeaders(settings);
+  refreshNotifications(false);
 }
 
 function withObserverPaused(fn: () => void): void {
@@ -124,6 +132,7 @@ async function enrichAndRender(ids: number[]): Promise<void> {
     const byId = new Map(cards.map((c) => [c.workPackageId, c]));
 
     withObserverPaused(() => {
+      let appearIndex = 0;
       for (const id of ids) {
         const card = byId.get(id);
         const enrichment = response.enrichments[String(id)];
@@ -139,7 +148,12 @@ async function enrichAndRender(ids: number[]): Promise<void> {
         }
         if (!settings) continue;
 
-        renderCard(card, enrichment, settings);
+        // Stagger card entrances so a batch doesn't all pop in at once
+        const enterDelayMs = Math.min(appearIndex * 28, 420);
+        appearIndex += 1;
+        renderCard(card, enrichment, settings, { enterDelayMs });
+        setCardStoryPointsAttr(card.root, enrichment.workPackage.storyPoints);
+        enrichmentCache.set(id, enrichment);
         enrichedIds.add(id);
         failedIds.delete(id);
         console.log(`${LOG} card #${id} loaded`, {
@@ -148,11 +162,14 @@ async function enrichAndRender(ids: number[]): Promise<void> {
           priority: enrichment.priorityPosition != null ? `P${enrichment.priorityPosition}` : null,
           sp: enrichment.storyPoints,
           blockersOk: enrichment.blockersOk,
+          reworkReturns: enrichment.reworkReturns,
           columnTime: enrichment.columnTimeText,
         });
       }
     });
 
+    refreshColumnHeaders(settings);
+    refreshNotificationBadgesOnly();
     scheduleFailedRetry();
   } catch (error) {
     ids.forEach((id) => failedIds.add(id));
@@ -225,96 +242,47 @@ async function scanNewCardsOnly(): Promise<void> {
     emptyBoardRetries = 0;
 
     let added = false;
-    for (const card of cards) {
-      if (!enrichedIds.has(card.workPackageId) && !failedIds.has(card.workPackageId)) {
-        pendingIds.add(card.workPackageId);
-        added = true;
+    const restored: number[] = [];
+
+    withObserverPaused(() => {
+      for (const card of cards) {
+        const cached = enrichmentCache.get(card.workPackageId);
+        if (cached && cardNeedsRestore(card.root, cached, settings!)) {
+          // Angular DnD often rewrites card DOM and drops our widgets — restore instantly
+          renderCard(card, cached, settings!, { force: true });
+          setCardStoryPointsAttr(card.root, cached.workPackage.storyPoints);
+          enrichmentCache.set(card.workPackageId, cached);
+          enrichedIds.add(card.workPackageId);
+          restored.push(card.workPackageId);
+          // Re-fetch so column time / status-dependent widgets stay accurate after a move
+          pendingIds.add(card.workPackageId);
+          added = true;
+          continue;
+        }
+
+        if (!enrichedIds.has(card.workPackageId) && !failedIds.has(card.workPackageId)) {
+          pendingIds.add(card.workPackageId);
+          added = true;
+        }
       }
+    });
+
+    if (restored.length > 0) {
+      console.log(`${LOG} restored widgets after DOM wipe`, { count: restored.length, ids: restored });
+      refreshColumnHeaders(settings);
     }
+
     if (added) {
       console.log(`${LOG} queued for enrich`, { count: pendingIds.size, ids: [...pendingIds] });
       await processPending();
     } else {
       console.log(`${LOG} nothing new to enrich`);
     }
-
-    if (baselineHash == null && enrichedIds.size > 0) {
-      await captureBaseline();
-    }
+    refreshColumnHeaders(settings);
+    refreshNotificationBadgesOnly();
   } catch (error) {
     logMessagingError(error, "scan");
   }
-}
-
-async function captureBaseline(): Promise<void> {
-  const ids = findBoardCards().map((c) => c.workPackageId);
-  if (ids.length === 0) return;
-
-  try {
-    const response = await sendMessage<BackgroundResponse>({
-      type: "BOARD_SNAPSHOT",
-      ids,
-    });
-    if (response.ok && "snapshotHash" in response) {
-      baselineHash = response.snapshotHash;
-      console.log(`${LOG} baseline hash`, baselineHash);
-    }
-  } catch (error) {
-    logMessagingError(error, "BOARD_SNAPSHOT baseline");
-  }
-}
-
-async function checkBoardStale(): Promise<void> {
-  if (!settings?.connection.token || baselineHash == null || staleBannerShown) return;
-  if (document.visibilityState !== "visible") return;
-
-  const ids = findBoardCards().map((c) => c.workPackageId);
-  if (ids.length === 0) return;
-
-  try {
-    const response = await sendMessage<BackgroundResponse>({
-      type: "BOARD_SNAPSHOT",
-      ids,
-    });
-    if (!response.ok || !("snapshotHash" in response)) return;
-
-    if (response.snapshotHash !== baselineHash) {
-      console.log(`${LOG} board stale`, { baselineHash, current: response.snapshotHash });
-      showStaleBanner();
-    }
-  } catch (error) {
-    logMessagingError(error, "BOARD_SNAPSHOT poll");
-  }
-}
-
-function showStaleBanner(): void {
-  if (staleBannerShown) return;
-  staleBannerShown = true;
-
-  const existing = document.getElementById("op-board-ext-stale-banner");
-  if (existing) return;
-
-  const banner = document.createElement("div");
-  banner.id = "op-board-ext-stale-banner";
-  banner.className = "op-board-ext-stale";
-
-  const text = document.createElement("span");
-  text.textContent = "Доска устарела — данные на сервере изменились";
-
-  const reload = document.createElement("button");
-  reload.type = "button";
-  reload.className = "op-board-ext-stale-reload";
-  reload.textContent = "Обновить";
-  reload.addEventListener("click", () => location.reload());
-
-  const dismiss = document.createElement("button");
-  dismiss.type = "button";
-  dismiss.className = "op-board-ext-stale-dismiss";
-  dismiss.textContent = "Скрыть";
-  dismiss.addEventListener("click", () => banner.remove());
-
-  banner.append(text, reload, dismiss);
-  document.documentElement.appendChild(banner);
 }
 
 function mutationLooksRelevant(mutations: MutationRecord[]): boolean {
@@ -354,6 +322,12 @@ function startObserver(): void {
     for (const card of findBoardCards()) {
       if (!card.root.hasAttribute("data-op-ext-fp")) {
         enrichedIds.delete(card.workPackageId);
+        continue;
+      }
+      // Fingerprint can survive on the host while Angular wipes inner widgets (DnD)
+      const cached = enrichmentCache.get(card.workPackageId);
+      if (cached && settings && cardNeedsRestore(card.root, cached, settings)) {
+        enrichedIds.delete(card.workPackageId);
       }
     }
     scheduleScan();
@@ -363,13 +337,6 @@ function startObserver(): void {
     childList: true,
     subtree: true,
   });
-}
-
-function startStalePoll(): void {
-  if (staleTimer != null) window.clearInterval(staleTimer);
-  staleTimer = window.setInterval(() => {
-    void checkBoardStale();
-  }, STALE_POLL_MS);
 }
 
 async function init(): Promise<void> {
@@ -399,9 +366,9 @@ async function boot(): Promise<void> {
   }
   startObserver();
   scheduleScan();
-  startStalePoll();
   initBoardFilters(() => settings);
   initOverviewEnhancer(() => settings);
+  initNotifications(() => settings);
   refreshOverviewEnhancer();
   console.log(`${LOG} boot ready (observer + scan scheduled)`);
 
@@ -413,13 +380,13 @@ async function boot(): Promise<void> {
           await refreshSettings();
           enrichedIds.clear();
           failedIds.clear();
-          baselineHash = null;
-          staleBannerShown = false;
-          document.getElementById("op-board-ext-stale-banner")?.remove();
+          enrichmentCache.clear();
           await sendMessage({ type: "CLEAR_CACHE" });
           scheduleScan();
           refreshBoardFilters();
           refreshOverviewEnhancer();
+          refreshColumnHeaders(settings);
+          refreshNotifications(false);
         } catch (error) {
           logMessagingError(error, "settings change");
         }

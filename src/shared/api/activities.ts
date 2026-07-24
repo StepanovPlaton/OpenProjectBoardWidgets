@@ -74,54 +74,31 @@ export async function fetchActivities(
   );
 }
 
-export function formatDuration(seconds: number, format: "short" | "full"): string {
+export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
-  if (s <= 0) return "только что";
+  if (s <= 0) return "0м";
 
   const days = Math.floor(s / 86400);
   const hours = Math.floor((s % 86400) / 3600);
   const minutes = Math.floor((s % 3600) / 60);
-  const secs = s % 60;
 
-  if (format === "short") {
-    if (days > 0) return pluralizeRu(days, "день", "дня", "дней");
-    if (hours > 0) return pluralizeRu(hours, "час", "часа", "часов");
-    if (minutes > 0) return pluralizeRu(minutes, "минуту", "минуты", "минут");
-    return pluralizeRu(secs, "секунду", "секунды", "секунд");
-  }
-
-  const parts: string[] = [];
-  if (days > 0) parts.push(pluralizeRu(days, "день", "дня", "дней"));
-  if (hours > 0) parts.push(pluralizeRu(hours, "час", "часа", "часов"));
-  if (minutes > 0 || parts.length === 0) {
-    parts.push(pluralizeRu(Math.max(minutes, 0), "минуту", "минуты", "минут"));
-  }
-  return parts.join(" ");
-}
-
-function pluralizeRu(value: number, one: string, few: string, many: string): string {
-  const mod100 = value % 100;
-  const mod10 = value % 10;
-  let word = many;
-  if (mod100 < 11 || mod100 > 14) {
-    if (mod10 === 1) word = one;
-    else if (mod10 >= 2 && mod10 <= 4) word = few;
-  }
-  return `${value} ${word}`;
+  if (days > 0) return `${days}д`;
+  if (hours > 0) return `${hours}ч`;
+  if (minutes > 0) return `${minutes}м`;
+  return `${s}с`;
 }
 
 export function computeColumnTimeText(
   activities: Record<string, unknown>[],
   statusName: string,
   createdAt: string | null,
-  format: "short" | "full",
 ): string {
   let enteredAt = findLastTransitionToStatusAt(activities, statusName);
   if (!enteredAt && createdAt) {
     enteredAt = parseActivityTimestamp(createdAt);
   }
-  if (!enteredAt) return "неизвестно";
+  if (!enteredAt) return "?";
 
   const deltaSec = Math.max(0, (Date.now() - enteredAt.getTime()) / 1000);
-  return formatDuration(deltaSec, format);
+  return formatDuration(deltaSec);
 }

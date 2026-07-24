@@ -1,5 +1,6 @@
 import type { CardEnrichment, Settings } from "../shared/types";
 import { contrastTextColor, formatPriorityLabel } from "../shared/widgets/priority";
+import { reworkSeverity } from "../shared/widgets/reworkReturns";
 import {
   applyDepartmentAfterId,
   cleanupLegacyNodes,
@@ -7,6 +8,7 @@ import {
   ensureBlockersSlot,
   ensureCiSlot,
   ensurePrioritySlot,
+  ensureReworkSlot,
   ensureSpSlot,
   ensureTimeSlot,
   getCardSurface,
@@ -28,6 +30,14 @@ const CI_SVG = `
 </svg>
 `.trim();
 
+const REWORK_SVG = `
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M12 6.5C12.5523 6.5 13 6.94772 13 7.5L13 13.5C13 14.0523 12.5523 14.5 12 14.5C11.4477 14.5 11 14.0523 11 13.5L11 7.5C11 6.94772 11.4477 6.5 12 6.5Z" fill="currentColor"></path>
+  <path d="M12 18.5C12.8284 18.5 13.5 17.8284 13.5 17C13.5 16.1716 12.8284 15.5 12 15.5C11.1716 15.5 10.5 16.1716 10.5 17C10.5 17.8284 11.1716 18.5 12 18.5Z" fill="currentColor"></path>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M9.82664 2.22902C10.7938 0.590326 13.2063 0.590325 14.1735 2.22902L23.6599 18.3024C24.6578 19.9933 23.3638 22 21.4865 22H2.51362C0.63634 22 -0.657696 19.9933 0.340215 18.3024L9.82664 2.22902ZM12.4511 3.24557C12.2578 2.91814 11.7423 2.91814 11.549 3.24557L2.06261 19.319C1.90904 19.5792 2.07002 20 2.51362 20H21.4865C21.9301 20 22.0911 19.5792 21.9375 19.319L12.4511 3.24557Z" fill="currentColor"></path>
+</svg>
+`.trim();
+
 function applyHideStrip(enabled: boolean): void {
   document.documentElement.classList.toggle("op-board-ext-hide-strip", enabled);
 }
@@ -41,6 +51,43 @@ function formatSpValue(value: number | null): string | null {
   return Number.isInteger(value) ? String(value) : String(value);
 }
 
+function visibleWidget(root: HTMLElement, selector: string): boolean {
+  const el = root.querySelector<HTMLElement>(selector);
+  return el != null && !el.hidden;
+}
+
+/**
+ * True when Angular (or DnD) wiped our injected widgets but the card is still on the board.
+ */
+export function cardNeedsRestore(
+  root: HTMLElement,
+  enrichment: CardEnrichment,
+  settings: Settings,
+): boolean {
+  if (settings.department.enabled && enrichment.departmentLabel) {
+    if (!root.querySelector(".op-board-ext-dept-slot")) return true;
+  }
+  if (settings.priority.enabled && enrichment.priorityPosition != null) {
+    if (!visibleWidget(root, ".op-board-ext-priority")) return true;
+  }
+  if (settings.storyPoints.enabled && enrichment.storyPoints != null) {
+    if (!visibleWidget(root, ".op-board-ext-sp")) return true;
+  }
+  if (enrichment.ciSummary && enrichment.ciSummary.total > 0) {
+    if (!visibleWidget(root, ".op-board-ext-ci")) return true;
+  }
+  if (settings.reworkReturns.enabled && enrichment.reworkReturns != null && enrichment.reworkReturns > 0) {
+    if (!visibleWidget(root, ".op-board-ext-rework")) return true;
+  }
+  if (settings.blockers.enabled && enrichment.blockersOk != null) {
+    if (!visibleWidget(root, ".op-board-ext-blockers")) return true;
+  }
+  if (settings.columnTime.enabled && enrichment.columnTimeText) {
+    if (!visibleWidget(root, ".op-board-ext-time")) return true;
+  }
+  return false;
+}
+
 function enrichmentFingerprint(enrichment: CardEnrichment, settings: Settings): string {
   return [
     settings.department.enabled ? enrichment.departmentLabel : "",
@@ -51,6 +98,7 @@ function enrichmentFingerprint(enrichment: CardEnrichment, settings: Settings): 
       : "",
     settings.blockers.enabled ? String(enrichment.blockersOk) : "",
     settings.columnTime.enabled ? enrichment.columnTimeText ?? "" : "",
+    settings.reworkReturns.enabled ? String(enrichment.reworkReturns ?? "") : "",
     settings.hideNativeStrip ? "1" : "0",
   ].join("|");
 }
@@ -71,10 +119,53 @@ function createCiIcon(): HTMLElement {
   return icon;
 }
 
+function createReworkIcon(): HTMLElement {
+  const icon = document.createElement("span");
+  icon.className = "op-board-ext-rework-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = REWORK_SVG;
+  return icon;
+}
+
+const ENTER_CLASS = "op-board-ext-widget-enter";
+const SHOWN_ATTR = "data-op-ext-shown";
+
+function clearEnterAnimation(el: HTMLElement): void {
+  el.classList.remove(ENTER_CLASS);
+  el.style.removeProperty("--op-board-ext-enter-delay");
+}
+
+function hideWidget(el: HTMLElement): void {
+  el.hidden = true;
+  el.removeAttribute(SHOWN_ATTR);
+  clearEnterAnimation(el);
+}
+
+/** Fade/scale in the first time a widget becomes visible on a card. */
+function revealWidget(el: HTMLElement, delayMs = 0): void {
+  el.hidden = false;
+  if (el.getAttribute(SHOWN_ATTR) === "1") return;
+  el.setAttribute(SHOWN_ATTR, "1");
+  clearEnterAnimation(el);
+  if (delayMs > 0) {
+    el.style.setProperty("--op-board-ext-enter-delay", `${delayMs}ms`);
+  }
+  // Restart CSS animation even if the class was already present
+  void el.offsetWidth;
+  el.classList.add(ENTER_CLASS);
+  const onEnd = (event: AnimationEvent): void => {
+    if (event.target !== el) return;
+    clearEnterAnimation(el);
+    el.removeEventListener("animationend", onEnd);
+  };
+  el.addEventListener("animationend", onEnd);
+}
+
 export function renderCard(
   card: BoardCard,
   enrichment: CardEnrichment | undefined,
   settings: Settings,
+  options?: { enterDelayMs?: number; force?: boolean },
 ): void {
   markCard(card.root, card.workPackageId);
   card.root.classList.add("op-board-ext-card");
@@ -83,19 +174,22 @@ export function renderCard(
 
   if (!enrichment) return;
 
+  const enterDelay = options?.enterDelayMs ?? 0;
   const fp = enrichmentFingerprint(enrichment, settings);
-  if (getRenderFingerprint(card.root) === fp) {
+  if (!options?.force && getRenderFingerprint(card.root) === fp) {
     // Still ensure dept/slots exist if Angular wiped them, but skip full rewrite when same
-    const hasDept = card.root.querySelector(
-      ".op-board-ext-dept-slot, .op-wp-single-card--content-project-name",
-    );
-    const hasPriority = card.root.querySelector(".op-board-ext-priority");
-    if (hasDept && (!settings.priority.enabled || hasPriority)) {
+    if (!cardNeedsRestore(card.root, enrichment, settings)) {
       return;
     }
   }
 
   applyDepartmentAfterId(card.root, enrichment.departmentLabel, settings.department.enabled);
+  const deptSlot = card.root.querySelector<HTMLElement>(
+    ".op-wp-single-card--content-project-name.op-board-ext-dept-slot",
+  );
+  if (deptSlot && settings.department.enabled && enrichment.departmentLabel) {
+    revealWidget(deptSlot, enterDelay);
+  }
 
   const assignee = ensureAssigneeRow(card.root);
   if (assignee) {
@@ -106,10 +200,10 @@ export function renderCard(
       const bg = enrichment.priorityColor || "#9e9e9e";
       priority.style.backgroundColor = bg;
       priority.style.color = contrastTextColor(bg);
-      priority.hidden = false;
+      revealWidget(priority, enterDelay);
     } else {
       priority.textContent = "";
-      priority.hidden = true;
+      hideWidget(priority);
     }
 
     const sp = ensureSpSlot(assignee);
@@ -121,10 +215,10 @@ export function renderCard(
       num.className = "op-board-ext-sp-value";
       num.textContent = spValue;
       sp.append(createLightbulbIcon(), num);
-      sp.hidden = false;
+      revealWidget(sp, enterDelay + 40);
     } else {
       sp.replaceChildren();
-      sp.hidden = true;
+      hideWidget(sp);
     }
 
     const ci = ensureCiSlot(assignee);
@@ -142,10 +236,33 @@ export function renderCard(
       num.className = "op-board-ext-ci-value";
       num.textContent = `${ciSummary.successful}/${ciSummary.total}`;
       ci.append(createCiIcon(), num);
-      ci.hidden = false;
+      revealWidget(ci, enterDelay + 80);
     } else {
       ci.replaceChildren();
-      ci.hidden = true;
+      hideWidget(ci);
+    }
+
+    const rework = ensureReworkSlot(assignee);
+    const reworkCount =
+      settings.reworkReturns.enabled && enrichment.reworkReturns != null && enrichment.reworkReturns > 0
+        ? enrichment.reworkReturns
+        : null;
+    if (reworkCount != null) {
+      const severity = reworkSeverity(reworkCount);
+      rework.className = `op-board-ext-rework op-board-ext-rework--${severity}`;
+      rework.title =
+        reworkCount === 1
+          ? "1 возврат из готово в доработку"
+          : `Возвратов из готово в доработку: ${reworkCount}`;
+      rework.replaceChildren();
+      const num = document.createElement("span");
+      num.className = "op-board-ext-rework-value";
+      num.textContent = String(reworkCount);
+      rework.append(createReworkIcon(), num);
+      revealWidget(rework, enterDelay + 100);
+    } else {
+      rework.replaceChildren();
+      hideWidget(rework);
     }
   }
 
@@ -158,11 +275,11 @@ export function renderCard(
     blockers.title = enrichment.blockersOk
       ? "Все связанные задачи выполнены (или связей нет)"
       : "Есть незавершённые связанные задачи";
-    blockers.hidden = false;
+    revealWidget(blockers, enterDelay + 60);
     getCardSurface(card.root).classList.add("op-board-ext-has-blockers");
   } else {
     blockers.textContent = "";
-    blockers.hidden = true;
+    hideWidget(blockers);
     getCardSurface(card.root).classList.remove("op-board-ext-has-blockers");
   }
 
@@ -171,10 +288,10 @@ export function renderCard(
     time.className = "op-board-ext-time";
     time.textContent = enrichment.columnTimeText;
     time.title = `В колонке: ${enrichment.workPackage.statusName}`;
-    time.hidden = false;
+    revealWidget(time, enterDelay + 100);
   } else {
     time.textContent = "";
-    time.hidden = true;
+    hideWidget(time);
   }
 
   setRenderFingerprint(card.root, fp);
@@ -184,7 +301,7 @@ export function teardownCard(root: HTMLElement): void {
   cleanupLegacyNodes(root);
   root
     .querySelectorAll(
-      ".op-board-ext-dept, .op-board-ext-priority, .op-board-ext-sp, .op-board-ext-ci, .op-board-ext-blockers, .op-board-ext-time",
+      ".op-board-ext-dept, .op-board-ext-priority, .op-board-ext-sp, .op-board-ext-ci, .op-board-ext-rework, .op-board-ext-blockers, .op-board-ext-time",
     )
     .forEach((el) => el.remove());
   root.querySelectorAll(".op-board-ext-hide-project, .op-board-ext-dept-slot").forEach((el) => {

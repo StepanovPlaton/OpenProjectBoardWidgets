@@ -54,6 +54,56 @@ export class OpenProjectClient {
     return (await response.json()) as T;
   }
 
+  async postJson<T = unknown>(pathOrUrl: string, body: unknown = {}): Promise<T | null> {
+    const url = pathOrUrl.startsWith("http")
+      ? pathOrUrl
+      : `${this.baseUrl}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
+
+    let response: Response;
+    try {
+      // OpenProject requires Content-Type on POST (406 without it), even for empty bodies
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: "application/hal+json, application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body ?? {}),
+      });
+    } catch (error) {
+      throw new ApiError(
+        error instanceof Error ? error.message : "Network error",
+        0,
+        "NETWORK",
+      );
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      throw new ApiError("Unauthorized — check API token", response.status, "UNAUTHORIZED");
+    }
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const errBody = (await response.json()) as { message?: unknown };
+        if (typeof errBody.message === "string") detail = errBody.message;
+        else if (Array.isArray(errBody.message)) detail = errBody.message.map(String).join("; ");
+      } catch {
+        // keep statusText
+      }
+      throw new ApiError(`OpenProject API ${response.status}: ${detail}`, response.status);
+    }
+
+    const text = await response.text();
+    if (!text) return null;
+    return JSON.parse(text) as T;
+  }
+
   async getCollection<T = Record<string, unknown>>(path: string): Promise<T[]> {
     const elements: T[] = [];
     let offset = 1;

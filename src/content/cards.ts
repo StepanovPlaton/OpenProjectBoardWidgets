@@ -240,6 +240,28 @@ export function ensureCiSlot(assignee: HTMLElement): HTMLElement {
   return el;
 }
 
+/** Rework-returns badge after CI (or SP) inside assignee. */
+export function ensureReworkSlot(assignee: HTMLElement): HTMLElement {
+  let el = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-rework");
+  if (!el) {
+    el = document.createElement("span");
+    el.className = "op-board-ext-rework";
+  }
+
+  const ci = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-ci");
+  const sp = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-sp");
+  const anchor = ci ?? sp;
+  if (anchor) {
+    if (el.previousElementSibling !== anchor) {
+      anchor.after(el);
+    }
+  } else if (el.parentElement !== assignee) {
+    assignee.appendChild(el);
+  }
+
+  return el;
+}
+
 /** Blockers badge overlays the native details (i) button without moving it. */
 export function ensureBlockersSlot(root: HTMLElement): HTMLElement {
   const surface = getCardSurface(root);
@@ -301,14 +323,15 @@ export function isExtensionNode(node: Node): boolean {
       node.classList.contains("op-board-ext-priority") ||
       node.classList.contains("op-board-ext-sp") ||
       node.classList.contains("op-board-ext-ci") ||
+      node.classList.contains("op-board-ext-rework") ||
       node.classList.contains("op-board-ext-blockers") ||
       node.classList.contains("op-board-ext-time") ||
-      node.classList.contains("op-board-ext-stale") ||
-      node.id === "op-board-ext-stale-banner"
+      node.classList.contains("op-board-ext-notif") ||
+      node.id === "op-board-ext-notif-toasts"
     ) {
       return true;
     }
-    if (node.closest?.("[class*='op-board-ext'], #op-board-ext-stale-banner")) return true;
+    if (node.closest?.("[class*='op-board-ext'], #op-board-ext-notif-toasts")) return true;
   }
   if (node instanceof Text) {
     const parent = node.parentElement;

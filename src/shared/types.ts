@@ -43,8 +43,15 @@ export interface BlockersWidgetSettings {
 
 export interface ColumnTimeWidgetSettings {
   enabled: boolean;
-  /** "short" = largest unit only (как в most-bot), "full" = 2d 4h */
-  format: "short" | "full";
+}
+
+/** Counts returns from done statuses back to work (uses blockers.doneStatusNames). */
+export interface ReworkReturnsWidgetSettings {
+  enabled: boolean;
+}
+
+export interface NotificationsWidgetSettings {
+  enabled: boolean;
 }
 
 export interface Settings {
@@ -54,6 +61,8 @@ export interface Settings {
   storyPoints: StoryPointsWidgetSettings;
   blockers: BlockersWidgetSettings;
   columnTime: ColumnTimeWidgetSettings;
+  reworkReturns: ReworkReturnsWidgetSettings;
+  notifications: NotificationsWidgetSettings;
   hideNativeStrip: boolean;
   /** Compact card styles for People / Estimates / Details on Overview. */
   overviewRedesign: boolean;
@@ -130,6 +139,21 @@ export interface CiSummary {
   pullRequestCount: number;
 }
 
+export interface NotificationSummary {
+  id: number;
+  reason: string;
+  readIAN: boolean;
+  subject: string;
+  workPackageId: number | null;
+  workPackageSubject: string;
+  projectName: string;
+  actorName: string;
+  createdAt: string | null;
+}
+
+/** Card corner badge: mention (@) wins over generic unread. */
+export type CardNotificationBadge = "none" | "unread" | "mention";
+
 export interface CardEnrichment {
   workPackage: WorkPackageSummary;
   priorityPosition: number | null;
@@ -139,6 +163,8 @@ export interface CardEnrichment {
   ciSummary: CiSummary | null;
   blockersOk: boolean | null;
   columnTimeText: string | null;
+  /** Times the WP left a done status for a non-done one; null if widget off. */
+  reworkReturns: number | null;
 }
 
 export type BackgroundRequest =
@@ -151,7 +177,8 @@ export type BackgroundRequest =
   | { type: "SAVE_SETTINGS"; settings: Settings }
   | { type: "ENRICH_CARDS"; ids: number[] }
   | { type: "GET_WORK_PACKAGE_OVERVIEW_EXTRAS"; id: number }
-  | { type: "BOARD_SNAPSHOT"; ids: number[] }
+  | { type: "GET_UNREAD_NOTIFICATIONS" }
+  | { type: "MARK_WP_NOTIFICATIONS_READ"; workPackageId: number; notificationIds?: number[] }
   | { type: "RESOLVE_BOARD_SPRINT"; boardId: number }
   | { type: "TEST_CONNECTION" }
   | { type: "CLEAR_CACHE" };
@@ -161,7 +188,7 @@ export type BackgroundResponse =
   | { ok: true; options: PopupSettingsOptions }
   | { ok: true; enrichments: Record<string, CardEnrichment> }
   | { ok: true; overviewExtras: WorkPackageOverviewExtras }
-  | { ok: true; snapshotHash: string; ids: number[] }
+  | { ok: true; notifications: NotificationSummary[] }
   | { ok: true; sprintValues: string[] }
   | { ok: true; message: string }
   | { ok: false; error: string; code?: "UNAUTHORIZED" | "CONFIG" | "NETWORK" | "UNKNOWN" };
