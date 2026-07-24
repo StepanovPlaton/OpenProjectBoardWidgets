@@ -1,6 +1,6 @@
 import { STORAGE_KEY, loadSettings } from "../shared/settings";
 import { sendMessage } from "../shared/messaging";
-import type { BackgroundResponse, CardEnrichment, Settings } from "../shared/types";
+import type { BackgroundResponse, CardEnrichment, CardLazyEnrichment, Settings } from "../shared/types";
 import { initBoardFilters, refreshBoardFilters } from "./boardFilters";
 import { findBoardCards, diagnoseCardDom, isExtensionNode } from "./cards";
 import { initOverviewEnhancer, refreshOverviewEnhancer } from "./overview";
@@ -14,8 +14,9 @@ import {
 
 const LOG = "[op-board-ext]";
 const DEBOUNCE_MS = 400;
-/** Keep batches small so MV3 service worker can answer before the port closes. */
-const ENRICH_CHUNK = 30;
+/** Larger batches — tier-1 is a single filters=id request (up to 100). */
+const ENRICH_CHUNK = 50;
+const LAZY_CHUNK = 40;
 const RETRY_FAILED_MS = 5_000;
 /** Angular board often paints after first scan — keep polling briefly. */
 const EMPTY_BOARD_RETRY_MS = 1_000;
@@ -24,9 +25,13 @@ const EMPTY_BOARD_RETRY_MAX = 45;
 let settings: Settings | null = null;
 let debounceTimer: number | null = null;
 let enrichInFlight = false;
+let lazyInFlight = false;
 let pendingIds = new Set<number>();
-/** Cards already enriched this page session — don't re-fetch unless settings change */
+let pendingLazyIds = new Set<number>();
+/** Cards that already received tier-1 (WP fields). */
 const enrichedIds = new Set<number>();
+/** Cards that already received a successful tier-2 pass. */
+const lazyDoneIds = new Set<number>();
 const failedIds = new Set<number>();
 /** Last known enrichment per WP — used to restore widgets after Angular DnD re-renders. */
 const enrichmentCache = new Map<number, CardEnrichment>();
@@ -99,37 +104,37 @@ function scheduleFailedRetry(): void {
   }, RETRY_FAILED_MS);
 }
 
-async function enrichAndRender(ids: number[]): Promise<void> {
+async function enrichAndRender(ids: number[], force = false): Promise<void> {
   if (ids.length === 0 || !settings) return;
 
-  console.log(`${LOG} enrich request`, { ids });
+  console.log(`${LOG} enrich FAST request`, { ids, force });
 
   try {
     const response = await sendMessage<BackgroundResponse>({
       type: "ENRICH_CARDS",
       ids,
+      force,
     });
 
     if (!response.ok) {
-      console.warn(`${LOG} enrich failed`, response.error, response.code);
+      console.warn(`${LOG} enrich FAST failed`, response.error, response.code);
       ids.forEach((id) => failedIds.add(id));
       scheduleFailedRetry();
       return;
     }
     if (!("enrichments" in response)) {
-      console.warn(`${LOG} enrich response without enrichments`, response);
+      console.warn(`${LOG} enrich FAST response without enrichments`, response);
       return;
     }
 
-    const enrichmentKeys = Object.keys(response.enrichments);
-    console.log(`${LOG} enrich response`, {
+    console.log(`${LOG} enrich FAST response`, {
       requested: ids.length,
-      received: enrichmentKeys.length,
-      ids: enrichmentKeys,
+      received: Object.keys(response.enrichments).length,
     });
 
     const cards = findBoardCards();
     const byId = new Map(cards.map((c) => [c.workPackageId, c]));
+    const okIds: number[] = [];
 
     withObserverPaused(() => {
       let appearIndex = 0;
@@ -148,29 +153,38 @@ async function enrichAndRender(ids: number[]): Promise<void> {
         }
         if (!settings) continue;
 
-        // Stagger card entrances so a batch doesn't all pop in at once
-        const enterDelayMs = Math.min(appearIndex * 28, 420);
+        const prev = enrichmentCache.get(id);
+        const merged: CardEnrichment = prev
+          ? {
+              ...enrichment,
+              // Keep any already-loaded lazy fields if we re-ran FAST
+              ciSummary: enrichment.ciSummary ?? prev.ciSummary,
+              blockersOk: enrichment.blockersOk ?? prev.blockersOk,
+              columnTimeText: enrichment.columnTimeText ?? prev.columnTimeText,
+              reworkReturns: enrichment.reworkReturns ?? prev.reworkReturns,
+            }
+          : enrichment;
+
+        const enterDelayMs = Math.min(appearIndex * 20, 300);
         appearIndex += 1;
-        renderCard(card, enrichment, settings, { enterDelayMs });
-        setCardStoryPointsAttr(card.root, enrichment.workPackage.storyPoints);
-        enrichmentCache.set(id, enrichment);
+        renderCard(card, merged, settings, { enterDelayMs });
+        setCardStoryPointsAttr(card.root, merged.workPackage.storyPoints);
+        enrichmentCache.set(id, merged);
         enrichedIds.add(id);
         failedIds.delete(id);
-        console.log(`${LOG} card #${id} loaded`, {
-          subject: enrichment.workPackage.subject,
-          department: enrichment.departmentLabel || null,
-          priority: enrichment.priorityPosition != null ? `P${enrichment.priorityPosition}` : null,
-          sp: enrichment.storyPoints,
-          blockersOk: enrichment.blockersOk,
-          reworkReturns: enrichment.reworkReturns,
-          columnTime: enrichment.columnTimeText,
-        });
+        okIds.push(id);
       }
     });
 
     refreshColumnHeaders(settings);
     refreshNotificationBadgesOnly();
     scheduleFailedRetry();
+
+    // Kick tier-2 without blocking the next FAST batch
+    for (const id of okIds) {
+      if (!lazyDoneIds.has(id)) pendingLazyIds.add(id);
+    }
+    void processLazyPending();
   } catch (error) {
     ids.forEach((id) => failedIds.add(id));
     logMessagingError(error, "ENRICH_CARDS");
@@ -178,20 +192,115 @@ async function enrichAndRender(ids: number[]): Promise<void> {
   }
 }
 
-async function processPending(): Promise<void> {
+function mergeLazy(
+  base: CardEnrichment,
+  lazy: CardLazyEnrichment,
+): CardEnrichment {
+  return {
+    ...base,
+    ciSummary: lazy.ciSummary,
+    blockersOk: lazy.blockersOk,
+    columnTimeText: lazy.columnTimeText,
+    reworkReturns: lazy.reworkReturns,
+  };
+}
+
+async function enrichLazyAndRender(ids: number[]): Promise<void> {
+  if (ids.length === 0 || !settings) return;
+
+  console.log(`${LOG} enrich LAZY request`, { ids });
+
+  try {
+    const response = await sendMessage<BackgroundResponse>({
+      type: "ENRICH_CARDS_LAZY",
+      ids,
+    });
+
+    if (!response.ok) {
+      console.warn(`${LOG} enrich LAZY failed`, response.error, response.code);
+      return;
+    }
+    if (!("lazyEnrichments" in response)) {
+      console.warn(`${LOG} enrich LAZY response without payload`, response);
+      return;
+    }
+
+    console.log(`${LOG} enrich LAZY response`, {
+      requested: ids.length,
+      received: Object.keys(response.lazyEnrichments).length,
+    });
+
+    const cards = findBoardCards();
+    const byId = new Map(cards.map((c) => [c.workPackageId, c]));
+
+    withObserverPaused(() => {
+      for (const id of ids) {
+        const lazy = response.lazyEnrichments[String(id)];
+        const prev = enrichmentCache.get(id);
+        if (!lazy || !prev || !settings) continue;
+
+        const merged = mergeLazy(prev, lazy);
+        enrichmentCache.set(id, merged);
+        lazyDoneIds.add(id);
+
+        const card = byId.get(id);
+        if (card) {
+          renderCard(card, merged, settings, { force: true });
+          setCardStoryPointsAttr(card.root, merged.workPackage.storyPoints);
+        }
+      }
+    });
+
+    refreshColumnHeaders(settings);
+    refreshNotificationBadgesOnly();
+  } catch (error) {
+    logMessagingError(error, "ENRICH_CARDS_LAZY");
+  }
+}
+
+async function processPending(forceIds?: Set<number>): Promise<void> {
   if (enrichInFlight) return;
   enrichInFlight = true;
   try {
     while (pendingIds.size > 0) {
       const batch = [...pendingIds].slice(0, ENRICH_CHUNK);
       batch.forEach((id) => pendingIds.delete(id));
-      console.log(`${LOG} processing batch`, { batch, remaining: pendingIds.size });
-      await enrichAndRender(batch);
+      const forceBatch = forceIds ? batch.filter((id) => forceIds.has(id)) : [];
+      const normalBatch = forceIds ? batch.filter((id) => !forceIds.has(id)) : batch;
+      if (forceBatch.length > 0) {
+        console.log(`${LOG} processing FAST batch (force)`, { batch: forceBatch });
+        await enrichAndRender(forceBatch, true);
+      }
+      if (normalBatch.length > 0) {
+        console.log(`${LOG} processing FAST batch`, {
+          batch: normalBatch,
+          remaining: pendingIds.size,
+        });
+        await enrichAndRender(normalBatch, false);
+      }
     }
   } finally {
     enrichInFlight = false;
     if (pendingIds.size > 0) {
-      void processPending();
+      void processPending(forceIds);
+    }
+  }
+}
+
+async function processLazyPending(): Promise<void> {
+  if (lazyInFlight) return;
+  lazyInFlight = true;
+  try {
+    while (pendingLazyIds.size > 0) {
+      const batch = [...pendingLazyIds].slice(0, LAZY_CHUNK);
+      batch.forEach((id) => pendingLazyIds.delete(id));
+      console.log(`${LOG} processing LAZY batch`, { batch, remaining: pendingLazyIds.size });
+      await enrichLazyAndRender(batch);
+    }
+  } finally {
+    lazyInFlight = false;
+    if (pendingLazyIds.size > 0) {
+      void processLazyPending();
     }
   }
 }
@@ -243,6 +352,7 @@ async function scanNewCardsOnly(): Promise<void> {
 
     let added = false;
     const restored: number[] = [];
+    const forceRefresh = new Set<number>();
 
     withObserverPaused(() => {
       for (const card of cards) {
@@ -254,7 +364,9 @@ async function scanNewCardsOnly(): Promise<void> {
           enrichmentCache.set(card.workPackageId, cached);
           enrichedIds.add(card.workPackageId);
           restored.push(card.workPackageId);
-          // Re-fetch so column time / status-dependent widgets stay accurate after a move
+          // Status may have changed after a move — refresh WP + lazy fields
+          forceRefresh.add(card.workPackageId);
+          lazyDoneIds.delete(card.workPackageId);
           pendingIds.add(card.workPackageId);
           added = true;
           continue;
@@ -263,6 +375,12 @@ async function scanNewCardsOnly(): Promise<void> {
         if (!enrichedIds.has(card.workPackageId) && !failedIds.has(card.workPackageId)) {
           pendingIds.add(card.workPackageId);
           added = true;
+        } else if (
+          enrichedIds.has(card.workPackageId) &&
+          !lazyDoneIds.has(card.workPackageId) &&
+          !pendingLazyIds.has(card.workPackageId)
+        ) {
+          pendingLazyIds.add(card.workPackageId);
         }
       }
     });
@@ -274,9 +392,10 @@ async function scanNewCardsOnly(): Promise<void> {
 
     if (added) {
       console.log(`${LOG} queued for enrich`, { count: pendingIds.size, ids: [...pendingIds] });
-      await processPending();
+      await processPending(forceRefresh);
     } else {
       console.log(`${LOG} nothing new to enrich`);
+      void processLazyPending();
     }
     refreshColumnHeaders(settings);
     refreshNotificationBadgesOnly();
@@ -379,8 +498,10 @@ async function boot(): Promise<void> {
           console.log(`${LOG} settings changed in storage — reloading`);
           await refreshSettings();
           enrichedIds.clear();
+          lazyDoneIds.clear();
           failedIds.clear();
           enrichmentCache.clear();
+          pendingLazyIds.clear();
           await sendMessage({ type: "CLEAR_CACHE" });
           scheduleScan();
           refreshBoardFilters();

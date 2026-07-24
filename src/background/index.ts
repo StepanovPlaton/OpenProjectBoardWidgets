@@ -12,39 +12,43 @@ import {
 import { fetchPriorities } from "../shared/api/priorities";
 import { fetchRelations } from "../shared/api/relations";
 import { fetchPopupSettingsOptions } from "../shared/api/settingsOptions";
-import { fetchWorkPackagesByIds } from "../shared/api/workPackages";
 import { STORAGE_KEY, loadSettings, normalizeBaseUrl, saveSettings } from "../shared/settings";
 import type {
   BackgroundRequest,
   BackgroundResponse,
   CardEnrichment,
+  CardLazyEnrichment,
   CiSummary,
   GithubPullRequestOverviewItem,
   NotificationSummary,
   PriorityInfo,
   RelationOverviewItem,
   Settings,
-  WorkPackageSummary,
   WorkPackageOverviewExtras,
 } from "../shared/types";
 import { computeBlockersOk } from "../shared/widgets/blockers";
 import { formatDepartmentLabel } from "../shared/widgets/department";
 import { resolvePriorityDisplay } from "../shared/widgets/priority";
 import { countReworkReturns } from "../shared/widgets/reworkReturns";
+import {
+  clearWorkPackageStore,
+  ensureWorkPackages,
+  invalidateWorkPackages,
+  peekWorkPackage,
+  workPackageStoreStats,
+} from "./store";
 
-const WP_TTL_MS = 60_000;
 const PRIORITY_TTL_MS = 10 * 60_000;
-const RELATIONS_TTL_MS = 90_000;
-const ACTIVITIES_TTL_MS = 120_000;
-const GITHUB_CI_TTL_MS = 60_000;
-const NOTIFICATIONS_TTL_MS = 20_000;
+const RELATIONS_TTL_MS = 3 * 60_000;
+const ACTIVITIES_TTL_MS = 3 * 60_000;
+const GITHUB_CI_TTL_MS = 2 * 60_000;
+const NOTIFICATIONS_TTL_MS = 30_000;
 
 interface CacheEntry<T> {
   value: T;
   expiresAt: number;
 }
 
-const wpCache = new Map<number, CacheEntry<WorkPackageSummary>>();
 const relationsCache = new Map<number, CacheEntry<number[]>>();
 const activitiesCache = new Map<number, CacheEntry<Record<string, unknown>[]>>();
 const githubCiCache = new Map<number, CacheEntry<CiSummary | null>>();
@@ -66,7 +70,7 @@ function setCached<T>(map: Map<number, CacheEntry<T>>, id: number, value: T, ttl
 }
 
 function clearAllCaches(): void {
-  wpCache.clear();
+  clearWorkPackageStore();
   relationsCache.clear();
   activitiesCache.clear();
   githubCiCache.clear();
@@ -90,34 +94,6 @@ async function getPriorities(client: OpenProjectClient): Promise<PriorityInfo[]>
   const priorities = await fetchPriorities(client);
   prioritiesCache = { value: priorities, expiresAt: Date.now() + PRIORITY_TTL_MS };
   return priorities;
-}
-
-async function ensureWorkPackages(
-  client: OpenProjectClient,
-  ids: number[],
-  settings: Settings,
-): Promise<Map<number, WorkPackageSummary>> {
-  const missing: number[] = [];
-  const result = new Map<number, WorkPackageSummary>();
-
-  for (const id of ids) {
-    const cached = getCached(wpCache, id);
-    if (cached) result.set(id, cached);
-    else missing.push(id);
-  }
-
-  if (missing.length > 0) {
-    const fetched = await fetchWorkPackagesByIds(client, missing, {
-      departmentField: settings.department.field,
-      storyPointsField: settings.storyPoints.field,
-    });
-    for (const [id, wp] of fetched) {
-      setCached(wpCache, id, wp, WP_TTL_MS);
-      result.set(id, wp);
-    }
-  }
-
-  return result;
 }
 
 async function getRelatedIds(client: OpenProjectClient, wpId: number): Promise<number[]> {
@@ -145,8 +121,10 @@ async function getGithubCiSummary(
   client: OpenProjectClient,
   wpId: number,
 ): Promise<CiSummary | null> {
-  const cached = getCached(githubCiCache, wpId);
-  if (cached || githubCiCache.has(wpId)) return cached;
+  const entry = githubCiCache.get(wpId);
+  if (entry && Date.now() <= entry.expiresAt) {
+    return entry.value;
+  }
 
   const summary = await fetchGithubCiSummary(client, wpId);
   setCached(githubCiCache, wpId, summary, GITHUB_CI_TTL_MS);
@@ -173,110 +151,157 @@ async function mapLimit<T, R>(
   return results;
 }
 
-async function enrichCards(ids: number[]): Promise<Record<string, CardEnrichment>> {
-  console.log("[op-board-ext:bg] enrichCards start", { count: ids.length, ids });
+/** Tier 1 — WP fields only (priority, SP, department). One batch API call. */
+async function enrichCardsFast(ids: number[], force = false): Promise<Record<string, CardEnrichment>> {
+  console.log("[op-board-ext:bg] enrich FAST start", {
+    count: ids.length,
+    force,
+    store: workPackageStoreStats(),
+  });
   const settings = await loadSettings();
   const client = clientFromSettings(settings);
   const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
 
-  const workPackages = await ensureWorkPackages(client, unique, settings);
-  console.log("[op-board-ext:bg] work packages fetched", {
-    requested: unique.length,
-    got: workPackages.size,
-  });
-  const priorities = settings.priority.enabled ? await getPriorities(client) : [];
+  if (force) {
+    invalidateWorkPackages(unique);
+    for (const id of unique) {
+      activitiesCache.delete(id);
+      relationsCache.delete(id);
+      githubCiCache.delete(id);
+    }
+  }
 
-  // Collect related IDs if blockers enabled
+  const [workPackages, priorities] = await Promise.all([
+    ensureWorkPackages(client, unique, settings),
+    settings.priority.enabled ? getPriorities(client) : Promise.resolve([] as PriorityInfo[]),
+  ]);
+
+  const enrichments: Record<string, CardEnrichment> = {};
+  for (const id of unique) {
+    const wp = workPackages.get(id);
+    if (!wp) continue;
+
+    const { position, color } = settings.priority.enabled
+      ? resolvePriorityDisplay(wp.priorityId, wp.priorityName, priorities)
+      : { position: null, color: null };
+
+    enrichments[String(id)] = {
+      workPackage: wp,
+      priorityPosition: position,
+      priorityColor: color,
+      departmentLabel: settings.department.enabled
+        ? formatDepartmentLabel(wp.department, settings.department)
+        : "",
+      storyPoints: settings.storyPoints.enabled ? wp.storyPoints : null,
+      ciSummary: null,
+      blockersOk: null,
+      columnTimeText: null,
+      reworkReturns: null,
+    };
+  }
+
+  console.log("[op-board-ext:bg] enrich FAST done", {
+    count: Object.keys(enrichments).length,
+    store: workPackageStoreStats(),
+  });
+  return enrichments;
+}
+
+/** Tier 2 — relations/blockers, activities, GitHub CI — parallel & cached. */
+async function enrichCardsLazy(ids: number[]): Promise<Record<string, CardLazyEnrichment>> {
+  console.log("[op-board-ext:bg] enrich LAZY start", { count: ids.length, store: workPackageStoreStats() });
+  const settings = await loadSettings();
+  const client = clientFromSettings(settings);
+  const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
+
+  // Ensure primary WPs are in store (no-op if FAST already loaded them)
+  await ensureWorkPackages(client, unique, settings);
+
+  const needBlockers = settings.blockers.enabled;
+  const needActivities = settings.columnTime.enabled || settings.reworkReturns.enabled;
+
   const relatedByWp = new Map<number, number[]>();
-  if (settings.blockers.enabled) {
-    await mapLimit(unique, 2, async (id) => {
+  if (needBlockers) {
+    await mapLimit(unique, 4, async (id) => {
       try {
         relatedByWp.set(id, await getRelatedIds(client, id));
       } catch {
         relatedByWp.set(id, []);
       }
     });
+    const allRelatedIds = [...new Set([...relatedByWp.values()].flat())];
+    if (allRelatedIds.length > 0) {
+      await ensureWorkPackages(client, allRelatedIds, settings);
+    }
   }
 
-  const allRelatedIds = [...new Set([...relatedByWp.values()].flat())];
-  if (allRelatedIds.length > 0) {
-    await ensureWorkPackages(client, allRelatedIds, settings);
-  }
+  const enrichments: Record<string, CardLazyEnrichment> = {};
 
-  const enrichments: Record<string, CardEnrichment> = {};
-
-  await mapLimit(unique, 2, async (id) => {
-    const wp = workPackages.get(id);
+  await mapLimit(unique, 4, async (id) => {
+    const wp = peekWorkPackage(id);
     if (!wp) return;
 
-    const { position, color } = settings.priority.enabled
-      ? resolvePriorityDisplay(wp.priorityId, wp.priorityName, priorities)
-      : { position: null, color: null };
+    const blockersPromise: Promise<boolean | null> = needBlockers
+      ? (async () => {
+          const relatedIds = relatedByWp.get(id) ?? [];
+          if (relatedIds.length === 0) return true;
+          const known = relatedIds
+            .map((rid) => peekWorkPackage(rid))
+            .filter((x): x is NonNullable<typeof x> => x != null);
+          if (known.length < relatedIds.length) return false;
+          return computeBlockersOk(known, settings.blockers);
+        })()
+      : Promise.resolve(null);
 
-    const departmentLabel = settings.department.enabled
-      ? formatDepartmentLabel(wp.department, settings.department)
-      : "";
-
-    let blockersOk: boolean | null = null;
-    if (settings.blockers.enabled) {
-      const relatedIds = relatedByWp.get(id) ?? [];
-      const known = relatedIds
-        .map((rid) => getCached(wpCache, rid))
-        .filter((x): x is WorkPackageSummary => x != null);
-      if (relatedIds.length === 0) {
-        blockersOk = true;
-      } else if (known.length < relatedIds.length) {
-        // Incomplete fetch: treat missing related WPs as not done
-        blockersOk = false;
-      } else {
-        blockersOk = computeBlockersOk(known, settings.blockers);
-      }
-    }
-
-    let ciSummary: CiSummary | null = null;
-    try {
-      ciSummary = await getGithubCiSummary(client, id);
-    } catch {
-      ciSummary = null;
-    }
-
-    let columnTimeText: string | null = null;
-    let reworkReturns: number | null = null;
-    const needActivities = settings.columnTime.enabled || settings.reworkReturns.enabled;
-    if (needActivities) {
+    const ciPromise: Promise<CiSummary | null> = (async () => {
       try {
-        const activities = await getActivities(client, id);
-        if (settings.columnTime.enabled) {
-          columnTimeText = computeColumnTimeText(
-            activities,
-            wp.statusName,
-            wp.createdAt,
-          );
-        }
-        if (settings.reworkReturns.enabled) {
-          reworkReturns = countReworkReturns(activities, settings.blockers.doneStatusNames);
-        }
+        return await getGithubCiSummary(client, id);
       } catch {
-        if (settings.columnTime.enabled) columnTimeText = "?";
-        if (settings.reworkReturns.enabled) reworkReturns = null;
+        return null;
       }
-    }
+    })();
+
+    const activitiesPromise: Promise<{
+      columnTimeText: string | null;
+      reworkReturns: number | null;
+    }> = needActivities
+      ? (async () => {
+          try {
+            const activities = await getActivities(client, id);
+            return {
+              columnTimeText: settings.columnTime.enabled
+                ? computeColumnTimeText(activities, wp.statusName, wp.createdAt)
+                : null,
+              reworkReturns: settings.reworkReturns.enabled
+                ? countReworkReturns(activities, settings.blockers.doneStatusNames)
+                : null,
+            };
+          } catch {
+            return {
+              columnTimeText: settings.columnTime.enabled ? "?" : null,
+              reworkReturns: null,
+            };
+          }
+        })()
+      : Promise.resolve({ columnTimeText: null, reworkReturns: null });
+
+    const [blockersOk, ciSummary, activityFields] = await Promise.all([
+      blockersPromise,
+      ciPromise,
+      activitiesPromise,
+    ]);
 
     enrichments[String(id)] = {
-      workPackage: wp,
-      priorityPosition: position,
-      priorityColor: color,
-      departmentLabel,
-      storyPoints: settings.storyPoints.enabled ? wp.storyPoints : null,
-      ciSummary,
       blockersOk,
-      columnTimeText,
-      reworkReturns,
+      ciSummary,
+      columnTimeText: activityFields.columnTimeText,
+      reworkReturns: activityFields.reworkReturns,
     };
   });
 
-  console.log("[op-board-ext:bg] enrichCards done", {
+  console.log("[op-board-ext:bg] enrich LAZY done", {
     count: Object.keys(enrichments).length,
+    store: workPackageStoreStats(),
   });
   return enrichments;
 }
@@ -323,7 +348,9 @@ async function getWorkPackageOverviewExtras(workPackageId: number): Promise<Work
   const relations = await fetchRelations(client, workPackageId);
   const relatedIds = [...new Set(relations.map((relation) => relation.otherId).filter((id) => id > 0))];
   const relatedWorkPackages =
-    relatedIds.length > 0 ? await ensureWorkPackages(client, relatedIds, settings) : new Map<number, WorkPackageSummary>();
+    relatedIds.length > 0
+      ? await ensureWorkPackages(client, relatedIds, settings)
+      : new Map();
 
   const relationItems: RelationOverviewItem[] = relations
     .map((relation) => {
@@ -368,7 +395,6 @@ async function getSettingsOptions(message: Extract<BackgroundRequest, { type: "G
   return fetchPopupSettingsOptions(message.connection, message.departmentField);
 }
 
-
 function toErrorResponse(error: unknown): BackgroundResponse {
   if (error instanceof ApiError) {
     return { ok: false, error: error.message, code: error.code };
@@ -409,8 +435,13 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
           break;
         }
         case "ENRICH_CARDS": {
-          const enrichments = await enrichCards(message.ids);
+          const enrichments = await enrichCardsFast(message.ids, Boolean(message.force));
           respond({ ok: true, enrichments });
+          break;
+        }
+        case "ENRICH_CARDS_LAZY": {
+          const lazyEnrichments = await enrichCardsLazy(message.ids);
+          respond({ ok: true, lazyEnrichments });
           break;
         }
         case "GET_WORK_PACKAGE_OVERVIEW_EXTRAS": {
@@ -454,7 +485,6 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
     }
   })();
 
-  // Keep the message channel open for the async response
   return true;
 });
 

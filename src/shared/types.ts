@@ -167,6 +167,14 @@ export interface CardEnrichment {
   reworkReturns: number | null;
 }
 
+/** Tier-2 fields loaded lazily after the fast WP enrich. */
+export interface CardLazyEnrichment {
+  ciSummary: CiSummary | null;
+  blockersOk: boolean | null;
+  columnTimeText: string | null;
+  reworkReturns: number | null;
+}
+
 export type BackgroundRequest =
   | { type: "GET_SETTINGS" }
   | {
@@ -175,7 +183,10 @@ export type BackgroundRequest =
       departmentField: string;
     }
   | { type: "SAVE_SETTINGS"; settings: Settings }
-  | { type: "ENRICH_CARDS"; ids: number[] }
+  /** Tier 1: WP fields (priority, SP, department) — batch, fast. */
+  | { type: "ENRICH_CARDS"; ids: number[]; force?: boolean }
+  /** Tier 2: blockers, activities, GitHub CI — parallel & cached. */
+  | { type: "ENRICH_CARDS_LAZY"; ids: number[] }
   | { type: "GET_WORK_PACKAGE_OVERVIEW_EXTRAS"; id: number }
   | { type: "GET_UNREAD_NOTIFICATIONS" }
   | { type: "MARK_WP_NOTIFICATIONS_READ"; workPackageId: number; notificationIds?: number[] }
@@ -187,6 +198,7 @@ export type BackgroundResponse =
   | { ok: true; settings: Settings }
   | { ok: true; options: PopupSettingsOptions }
   | { ok: true; enrichments: Record<string, CardEnrichment> }
+  | { ok: true; lazyEnrichments: Record<string, CardLazyEnrichment> }
   | { ok: true; overviewExtras: WorkPackageOverviewExtras }
   | { ok: true; notifications: NotificationSummary[] }
   | { ok: true; sprintValues: string[] }
