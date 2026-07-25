@@ -86,12 +86,33 @@ export interface WorkPackageSummary {
   priorityName: string;
   priorityId: number | null;
   projectName: string;
+  projectId: number | null;
   projectIdentifier: string;
   department: string;
   storyPoints: number | null;
+  assigneeId: number | null;
+  assigneeName: string;
+  assigneeHref: string | null;
+  assigneeAvatarUrl: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   lockVersion: number | null;
+}
+
+export interface AssigneeOption {
+  id: number;
+  name: string;
+  href: string;
+  avatarUrl: string | null;
+}
+
+/** Partial update payload for PATCH /work_packages/:id */
+export interface WorkPackagePatch {
+  lockVersion: number;
+  priorityId?: number | null;
+  /** Principal href, or null to unassign. */
+  assigneeHref?: string | null;
+  storyPoints?: number | null;
 }
 
 export interface RelationSummary {
@@ -190,6 +211,9 @@ export type BackgroundRequest =
   | { type: "GET_WORK_PACKAGE_OVERVIEW_EXTRAS"; id: number }
   | { type: "GET_UNREAD_NOTIFICATIONS" }
   | { type: "MARK_WP_NOTIFICATIONS_READ"; workPackageId: number; notificationIds?: number[] }
+  | { type: "GET_PRIORITIES" }
+  | { type: "GET_ASSIGNEE_OPTIONS"; workPackageId: number }
+  | { type: "UPDATE_WORK_PACKAGE"; id: number; patch: WorkPackagePatch }
   | { type: "RESOLVE_BOARD_SPRINT"; boardId: number }
   | { type: "TEST_CONNECTION" }
   | { type: "CLEAR_CACHE" };
@@ -201,6 +225,9 @@ export type BackgroundResponse =
   | { ok: true; lazyEnrichments: Record<string, CardLazyEnrichment> }
   | { ok: true; overviewExtras: WorkPackageOverviewExtras }
   | { ok: true; notifications: NotificationSummary[] }
+  | { ok: true; priorities: PriorityInfo[] }
+  | { ok: true; assignees: AssigneeOption[] }
+  | { ok: true; enrichment: CardEnrichment }
   | { ok: true; sprintValues: string[] }
   | { ok: true; message: string }
   | { ok: false; error: string; code?: "UNAUTHORIZED" | "CONFIG" | "NETWORK" | "UNKNOWN" };

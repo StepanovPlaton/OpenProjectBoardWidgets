@@ -55,15 +55,27 @@ export class OpenProjectClient {
   }
 
   async postJson<T = unknown>(pathOrUrl: string, body: unknown = {}): Promise<T | null> {
+    return this.writeJson<T>("POST", pathOrUrl, body);
+  }
+
+  async patchJson<T = unknown>(pathOrUrl: string, body: unknown = {}): Promise<T | null> {
+    return this.writeJson<T>("PATCH", pathOrUrl, body);
+  }
+
+  private async writeJson<T = unknown>(
+    method: "POST" | "PATCH",
+    pathOrUrl: string,
+    body: unknown = {},
+  ): Promise<T | null> {
     const url = pathOrUrl.startsWith("http")
       ? pathOrUrl
       : `${this.baseUrl}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
 
     let response: Response;
     try {
-      // OpenProject requires Content-Type on POST (406 without it), even for empty bodies
+      // OpenProject requires Content-Type on write requests (406 without it), even for empty bodies
       response = await fetch(url, {
-        method: "POST",
+        method,
         headers: {
           Authorization: `Bearer ${this.token}`,
           Accept: "application/hal+json, application/json",

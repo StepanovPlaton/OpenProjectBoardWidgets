@@ -34,16 +34,27 @@ function badgeForWp(workPackageId: number): CardNotificationBadge {
   return "unread";
 }
 
-function ensureBadgeSlot(root: HTMLElement): HTMLElement {
+function onBadgeClick(event: MouseEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  const badge = event.currentTarget as HTMLElement;
+  const wpId = Number(badge.dataset.workPackageId);
+  if (!Number.isFinite(wpId) || wpId <= 0) return;
+  void markWpNotificationsRead(wpId);
+}
+
+function ensureBadgeSlot(root: HTMLElement, workPackageId: number): HTMLElement {
   const surface = getCardSurface(root);
   surface.classList.add("op-board-ext-surface");
   let el = surface.querySelector<HTMLElement>(`:scope > .${BADGE_CLASS}`);
   if (!el) {
     el = document.createElement("span");
     el.className = BADGE_CLASS;
-    el.setAttribute("aria-hidden", "true");
+    el.setAttribute("role", "button");
+    el.addEventListener("click", onBadgeClick);
     surface.appendChild(el);
   }
+  el.dataset.workPackageId = String(workPackageId);
   return el;
 }
 
@@ -55,23 +66,27 @@ export function applyNotificationBadges(): void {
 
   for (const card of findBoardCards()) {
     const kind = badgeForWp(card.workPackageId);
-    const badge = ensureBadgeSlot(card.root);
+    const badge = ensureBadgeSlot(card.root, card.workPackageId);
     if (kind === "none") {
       badge.hidden = true;
       badge.textContent = "";
       badge.className = BADGE_CLASS;
+      badge.removeAttribute("aria-label");
+      badge.setAttribute("aria-hidden", "true");
+      badge.title = "";
       continue;
     }
 
     badge.hidden = false;
+    badge.removeAttribute("aria-hidden");
+    badge.setAttribute("aria-label", "Отметить уведомления прочитанными");
+    badge.title = "Отметить уведомления прочитанными";
     if (kind === "mention") {
       badge.className = `${BADGE_CLASS} ${BADGE_CLASS}--mention`;
       badge.textContent = "@";
-      badge.title = "Вас упомянули в этой задаче";
     } else {
       badge.className = `${BADGE_CLASS} ${BADGE_CLASS}--unread`;
       badge.textContent = "";
-      badge.title = "Есть непрочитанные уведомления";
     }
   }
 }
@@ -197,10 +212,8 @@ async function syncNotifications(announceNew: boolean): Promise<void> {
   }
 }
 
-async function maybeMarkOpenTaskRead(): Promise<void> {
+async function markWpNotificationsRead(wpId: number): Promise<void> {
   if (!enabled()) return;
-  const wpId = getOpenWorkPackageId();
-  if (wpId == null) return;
 
   const related = unread.filter((n) => n.workPackageId === wpId && !n.readIAN);
   if (related.length === 0) return;
@@ -209,11 +222,22 @@ async function maybeMarkOpenTaskRead(): Promise<void> {
   markInFlight = wpId;
   const relatedIds = related.map((n) => n.id);
 
+  // Optimistic: hide badge immediately while the API request is in flight.
+  unread = unread.filter((n) => n.workPackageId !== wpId);
+  applyNotificationBadges();
+
   console.log(`${LOG} sending MARK_WP_NOTIFICATIONS_READ`, {
     workPackageId: wpId,
     notificationIds: relatedIds,
     href: location.href,
   });
+
+  const restoreOptimistic = (): void => {
+    for (const n of related) {
+      if (!unread.some((u) => u.id === n.id)) unread.push(n);
+    }
+    applyNotificationBadges();
+  };
 
   try {
     const response = await sendMessage<BackgroundResponse>({
@@ -229,12 +253,20 @@ async function maybeMarkOpenTaskRead(): Promise<void> {
       });
     } else if (!response.ok) {
       console.warn(`${LOG} mark notifications read failed`, response.error, response.code);
+      restoreOptimistic();
     }
   } catch (error) {
     console.warn(`${LOG} mark notifications read failed`, error);
+    restoreOptimistic();
   } finally {
     markInFlight = null;
   }
+}
+
+async function maybeMarkOpenTaskRead(): Promise<void> {
+  const wpId = getOpenWorkPackageId();
+  if (wpId == null) return;
+  await markWpNotificationsRead(wpId);
 }
 
 function scheduleOpenTaskCheck(): void {

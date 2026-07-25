@@ -12,8 +12,13 @@ import {
 import { fetchPriorities } from "../shared/api/priorities";
 import { fetchRelations } from "../shared/api/relations";
 import { fetchPopupSettingsOptions } from "../shared/api/settingsOptions";
+import {
+  fetchAvailableAssignees,
+  updateWorkPackage,
+} from "../shared/api/workPackages";
 import { STORAGE_KEY, loadSettings, normalizeBaseUrl, saveSettings } from "../shared/settings";
 import type {
+  AssigneeOption,
   BackgroundRequest,
   BackgroundResponse,
   CardEnrichment,
@@ -25,6 +30,8 @@ import type {
   RelationOverviewItem,
   Settings,
   WorkPackageOverviewExtras,
+  WorkPackagePatch,
+  WorkPackageSummary,
 } from "../shared/types";
 import { computeBlockersOk } from "../shared/widgets/blockers";
 import { formatDepartmentLabel } from "../shared/widgets/department";
@@ -35,6 +42,7 @@ import {
   ensureWorkPackages,
   invalidateWorkPackages,
   peekWorkPackage,
+  putWorkPackage,
   workPackageStoreStats,
 } from "./store";
 
@@ -94,6 +102,53 @@ async function getPriorities(client: OpenProjectClient): Promise<PriorityInfo[]>
   const priorities = await fetchPriorities(client);
   prioritiesCache = { value: priorities, expiresAt: Date.now() + PRIORITY_TTL_MS };
   return priorities;
+}
+
+function buildFastEnrichment(
+  wp: WorkPackageSummary,
+  settings: Settings,
+  priorities: PriorityInfo[],
+): CardEnrichment {
+  const { position, color } = settings.priority.enabled
+    ? resolvePriorityDisplay(wp.priorityId, wp.priorityName, priorities)
+    : { position: null, color: null };
+
+  return {
+    workPackage: wp,
+    priorityPosition: position,
+    priorityColor: color,
+    departmentLabel: settings.department.enabled
+      ? formatDepartmentLabel(wp.department, settings.department)
+      : "",
+    storyPoints: settings.storyPoints.enabled ? wp.storyPoints : null,
+    ciSummary: null,
+    blockersOk: null,
+    columnTimeText: null,
+    reworkReturns: null,
+  };
+}
+
+async function patchWorkPackage(
+  id: number,
+  patch: WorkPackagePatch,
+): Promise<CardEnrichment> {
+  const settings = await loadSettings();
+  const client = clientFromSettings(settings);
+  const updated = await updateWorkPackage(client, id, patch, {
+    departmentField: settings.department.field,
+    storyPointsField: settings.storyPoints.field,
+  });
+  putWorkPackage(updated);
+  const priorities = settings.priority.enabled
+    ? await getPriorities(client)
+    : ([] as PriorityInfo[]);
+  return buildFastEnrichment(updated, settings, priorities);
+}
+
+async function getAssigneeOptions(workPackageId: number): Promise<AssigneeOption[]> {
+  const settings = await loadSettings();
+  const client = clientFromSettings(settings);
+  return fetchAvailableAssignees(client, workPackageId);
 }
 
 async function getRelatedIds(client: OpenProjectClient, wpId: number): Promise<number[]> {
@@ -180,24 +235,7 @@ async function enrichCardsFast(ids: number[], force = false): Promise<Record<str
   for (const id of unique) {
     const wp = workPackages.get(id);
     if (!wp) continue;
-
-    const { position, color } = settings.priority.enabled
-      ? resolvePriorityDisplay(wp.priorityId, wp.priorityName, priorities)
-      : { position: null, color: null };
-
-    enrichments[String(id)] = {
-      workPackage: wp,
-      priorityPosition: position,
-      priorityColor: color,
-      departmentLabel: settings.department.enabled
-        ? formatDepartmentLabel(wp.department, settings.department)
-        : "",
-      storyPoints: settings.storyPoints.enabled ? wp.storyPoints : null,
-      ciSummary: null,
-      blockersOk: null,
-      columnTimeText: null,
-      reworkReturns: null,
-    };
+    enrichments[String(id)] = buildFastEnrichment(wp, settings, priorities);
   }
 
   console.log("[op-board-ext:bg] enrich FAST done", {
@@ -460,6 +498,23 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
             message.notificationIds ?? [],
           );
           respond({ ok: true, notifications });
+          break;
+        }
+        case "GET_PRIORITIES": {
+          const settings = await loadSettings();
+          const client = clientFromSettings(settings);
+          const priorities = await getPriorities(client);
+          respond({ ok: true, priorities });
+          break;
+        }
+        case "GET_ASSIGNEE_OPTIONS": {
+          const assignees = await getAssigneeOptions(message.workPackageId);
+          respond({ ok: true, assignees });
+          break;
+        }
+        case "UPDATE_WORK_PACKAGE": {
+          const enrichment = await patchWorkPackage(message.id, message.patch);
+          respond({ ok: true, enrichment });
           break;
         }
         case "RESOLVE_BOARD_SPRINT": {

@@ -44,6 +44,10 @@ export function invalidateWorkPackages(ids: number[]): void {
   }
 }
 
+export function putWorkPackage(wp: WorkPackageSummary): void {
+  setCached(wp.id, wp);
+}
+
 export function workPackageStoreStats(): { cached: number; inflight: number } {
   return { cached: wpCache.size, inflight: wpInflight.size };
 }

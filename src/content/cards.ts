@@ -184,21 +184,134 @@ export function applyDepartmentAfterId(
   }
 }
 
-export function ensureAssigneeRow(root: HTMLElement): HTMLElement | null {
+export function ensureAssigneeRow(
+  root: HTMLElement,
+  options?: { hasAssignee?: boolean; assigneeName?: string; assigneeAvatarUrl?: string | null },
+): HTMLElement | null {
   const content = getCardContent(root);
   if (!content) return null;
 
-  const assignee = content.querySelector<HTMLElement>(
-    ".op-wp-single-card--content-assignee, op-principal.op-principal",
+  const native = content.querySelector<HTMLElement>(
+    ".op-wp-single-card--content-assignee:not(.op-board-ext-assignee-row)",
   );
-  if (!assignee) return null;
+  const fallback = content.querySelector<HTMLElement>(".op-board-ext-assignee-row");
 
-  assignee.classList.add("op-board-ext-assignee");
+  let assignee = native ?? fallback ?? null;
+
+  if (native && fallback && fallback !== native) {
+    fallback.remove();
+    assignee = native;
+  }
+
+  if (!assignee) {
+    // No native assignee row (common for unassigned cards) — create ours.
+    assignee = document.createElement("div");
+    assignee.className =
+      "op-wp-single-card--content-assignee op-board-ext-assignee op-board-ext-assignee-row";
+    content.appendChild(assignee);
+  } else {
+    assignee.classList.add("op-board-ext-assignee");
+  }
+
+  // Always hide OpenProject's native avatar — we render our own chip.
+  hideNativeAssigneeVisuals(content, assignee);
+
+  const hasAssignee = options?.hasAssignee === true;
+  syncAssigneeAvatar(assignee, {
+    hasAssignee,
+    assigneeName: options?.assigneeName ?? "",
+    avatarUrl: options?.assigneeAvatarUrl ?? null,
+  });
   return assignee;
+}
+
+function hideNativeAssigneeVisuals(content: HTMLElement, assigneeRow: HTMLElement): void {
+  const nodes = content.querySelectorAll<HTMLElement>(
+    "op-principal, .op-principal, .op-avatar, .op-principal--avatar, .avatar, img.avatar",
+  );
+  for (const el of nodes) {
+    // Keep our injected widgets; only hide OP avatar chrome
+    if (el.closest(".op-board-ext-assignee-avatar")) continue;
+    if (el === assigneeRow) continue;
+    el.classList.add("op-board-ext-hide-native-assignee");
+  }
+}
+
+function assigneeInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** Always-on custom assignee chip (replaces native OP avatar). */
+function syncAssigneeAvatar(
+  assignee: HTMLElement,
+  opts: { hasAssignee: boolean; assigneeName: string; avatarUrl: string | null },
+): void {
+  let chip = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-assignee-avatar");
+  if (!chip) {
+    chip = document.createElement("span");
+    chip.className = "op-board-ext-assignee-avatar";
+    chip.setAttribute("role", "button");
+  }
+
+  chip.replaceChildren();
+
+  if (opts.hasAssignee) {
+    const name = opts.assigneeName.trim() || "Исполнитель";
+    chip.classList.remove("op-board-ext-assignee-avatar--empty");
+    chip.classList.add("op-board-ext-assignee-avatar--assigned");
+    chip.title = `Исполнитель: ${name}`;
+    chip.setAttribute("aria-label", `Исполнитель: ${name}`);
+
+    const initials = document.createElement("span");
+    initials.className = "op-board-ext-assignee-avatar-initials";
+    initials.textContent = assigneeInitials(name);
+    chip.appendChild(initials);
+
+    if (opts.avatarUrl) {
+      const img = document.createElement("img");
+      img.className = "op-board-ext-assignee-avatar-img";
+      img.alt = "";
+      img.decoding = "async";
+      img.loading = "lazy";
+      img.src = opts.avatarUrl;
+      img.addEventListener("error", () => {
+        img.remove();
+      });
+      chip.appendChild(img);
+    }
+  } else {
+    chip.classList.remove("op-board-ext-assignee-avatar--assigned");
+    chip.classList.add("op-board-ext-assignee-avatar--empty");
+    chip.textContent = "?";
+    chip.title = "Назначить исполнителя";
+    chip.setAttribute("aria-label", "Назначить исполнителя");
+  }
+
+  assignee.querySelectorAll(":scope > .op-board-ext-assignee-placeholder").forEach((el) => el.remove());
+
+  const priority = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-priority");
+  if (priority) {
+    if (chip.previousElementSibling !== priority) {
+      priority.after(chip);
+    }
+  } else if (chip.parentElement !== assignee || chip !== assignee.firstElementChild) {
+    assignee.insertBefore(chip, assignee.firstChild);
+  }
 }
 
 /** Priority circle — first child of assignee (before avatar). */
 export function ensurePrioritySlot(assignee: HTMLElement): HTMLElement {
+  const existing = assignee.querySelector(":scope > .op-board-ext-priority");
+  if (existing && !(existing instanceof HTMLSpanElement)) {
+    // Migrate away from previous <select> experiments
+    existing.remove();
+  }
+
   let el = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-priority");
   if (!el) {
     el = document.createElement("span");
@@ -219,6 +332,9 @@ export function ensureSpSlot(assignee: HTMLElement): HTMLElement {
     if (existingSp) assignee.appendChild(existingSp);
     oldMeta.remove();
   }
+
+  // Remove leftover assignee <select> from previous edit UI
+  assignee.querySelectorAll(":scope > .op-board-ext-assignee-select").forEach((n) => n.remove());
 
   let el = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-sp");
   if (!el) {
@@ -327,7 +443,12 @@ export function isExtensionNode(node: Node): boolean {
       node.classList.contains("op-board-ext-blockers") ||
       node.classList.contains("op-board-ext-time") ||
       node.classList.contains("op-board-ext-notif") ||
-      node.id === "op-board-ext-notif-toasts"
+      node.classList.contains("op-board-ext-assignee-placeholder") ||
+      node.classList.contains("op-board-ext-assignee-avatar") ||
+      node.classList.contains("op-board-ext-assignee-row") ||
+      node.classList.contains("op-board-ext-hide-native-assignee") ||
+      node.id === "op-board-ext-notif-toasts" ||
+      node.id === "op-board-ext-edit-popover"
     ) {
       return true;
     }

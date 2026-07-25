@@ -105,7 +105,8 @@
 
 /* Priority before avatar, SP after — same row, same height (avatar mini = 20px) */
 .op-board-ext-assignee.op-wp-single-card--content-assignee,
-.op-board-ext-surface op-principal.op-board-ext-assignee {
+.op-board-ext-surface op-principal.op-board-ext-assignee,
+.op-board-ext-assignee-row {
   display: inline-flex !important;
   flex-direction: row;
   align-items: center;
@@ -113,6 +114,68 @@
   flex-wrap: nowrap;
   max-width: none !important;
   overflow: visible !important;
+}
+
+/* Replace native OP assignee avatar with our chip */
+.op-board-ext-hide-native-assignee {
+  display: none !important;
+}
+
+.op-board-ext-assignee > op-principal,
+.op-board-ext-assignee > .op-principal,
+.op-board-ext-assignee > .avatar,
+.op-board-ext-assignee .op-avatar,
+.op-board-ext-assignee .op-principal--avatar {
+  display: none !important;
+}
+
+.op-board-ext-assignee-placeholder,
+.op-board-ext-assignee-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: pointer;
+  box-sizing: border-box;
+  user-select: none;
+  font: 700 9px/1 "Segoe UI", system-ui, sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.op-board-ext-assignee-avatar--empty,
+.op-board-ext-assignee-placeholder {
+  border: 1px dashed rgba(0, 0, 0, 0.28);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 11px;
+}
+
+.op-board-ext-assignee-avatar--assigned {
+  border: 0;
+  background: #5c6bc0;
+  color: #fff;
+}
+
+.op-board-ext-assignee-avatar-initials {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.op-board-ext-assignee-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  z-index: 1;
 }
 
 .op-board-ext-priority {
@@ -134,10 +197,18 @@
   box-sizing: border-box;
 }
 
+.op-board-ext-priority--editable,
+.op-board-ext-sp--editable,
+.op-board-ext-assignee-placeholder,
+.op-board-ext-assignee-avatar {
+  cursor: pointer;
+}
+
 .op-board-ext-sp,
 .op-board-ext-ci,
 .op-board-ext-rework {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 3px;
@@ -154,6 +225,11 @@
   color: var(--body-font-color, currentColor);
   box-sizing: border-box;
   flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.op-board-ext-sp--empty {
+  opacity: 0.55;
 }
 
 .op-board-ext-ci {
@@ -194,10 +270,13 @@
 .op-board-ext-ci-icon,
 .op-board-ext-rework-icon {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
   color: inherit;
   flex-shrink: 0;
+  line-height: 0;
 }
 
 .op-board-ext-sp-icon svg,
@@ -208,10 +287,152 @@
   display: block;
 }
 
+.op-board-ext-sp-value {
+  position: relative;
+  top: -1px;
+}
+
 .op-board-ext-sp-value,
 .op-board-ext-ci-value,
 .op-board-ext-rework-value {
+  display: inline-flex;
+  align-items: center;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  height: 16px;
+}
+
+/* Floating edit popovers (do not affect in-card widget layout) */
+#op-board-ext-edit-popover {
+  position: fixed;
+  z-index: 2147483646;
+  min-width: 160px;
+  max-width: min(280px, calc(100vw - 16px));
+  max-height: min(320px, calc(100vh - 16px));
+  overflow: auto;
+  padding: 6px;
+  border-radius: 10px;
+  background: #1c2330;
+  color: #e8eef7;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  font: 12px/1.35 "Segoe UI", system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+.op-board-ext-edit-popover-loading {
+  padding: 8px 10px;
+  color: #9aa7b5;
+}
+
+.op-board-ext-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.op-board-ext-edit-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.op-board-ext-edit-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.op-board-ext-edit-option--active {
+  background: rgba(26, 115, 232, 0.22);
+}
+
+.op-board-ext-edit-priority-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.op-board-ext-edit-assignee-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #5c6bc0;
+  color: #fff;
+  font: 700 9px/1 "Segoe UI", system-ui, sans-serif;
+}
+
+.op-board-ext-edit-assignee-avatar--empty {
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #9aa7b5;
+  font-size: 11px;
+}
+
+.op-board-ext-edit-assignee-avatar-initials {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.op-board-ext-edit-assignee-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+.op-board-ext-edit-sp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.op-board-ext-edit-sp-label {
+  font-size: 11px;
+  color: #9aa7b5;
+}
+
+.op-board-ext-edit-sp-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: 600 13px/1 "Segoe UI", system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+.op-board-ext-edit-sp-input:focus {
+  outline: 2px solid rgba(26, 115, 232, 0.55);
+  outline-offset: 0;
 }
 
 /*
@@ -621,6 +842,20 @@
   justify-content: center;
   pointer-events: none;
   box-sizing: border-box;
+}
+
+.op-board-ext-notif--unread,
+.op-board-ext-notif--mention {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Expand hit area without changing the visual size */
+.op-board-ext-notif--unread::before,
+.op-board-ext-notif--mention::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
 }
 
 .op-board-ext-notif--unread {
