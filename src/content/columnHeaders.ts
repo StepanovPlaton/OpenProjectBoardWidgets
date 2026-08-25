@@ -1,7 +1,12 @@
-import type { Settings } from "../shared/types";
+import type { Settings, WipLimitRule } from "../shared/types";
+import { getActiveWipLimits } from "../shared/settings";
 import { findBoardCards, type BoardCard } from "./cards";
 
 const STATS_CLASS = "op-board-ext-column-stats";
+const COUNT_CLASS = "op-board-ext-column-count";
+const WIP_AT_CLASS = "op-board-ext-wip-at";
+const WIP_OVER_CLASS = "op-board-ext-wip-over";
+const COLUMN_WIP_OVER_CLASS = "op-board-ext-column-wip-over";
 const HEADER_SELECTOR =
   ".op-board-list--header, [data-test-selector='op-board-list--header']";
 const COLUMN_SELECTOR = "boards-list, .op-board-list, [data-test-selector='op-board-list']";
@@ -55,6 +60,34 @@ function formatSpSum(value: number): string {
   return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
 }
 
+function columnStatusName(header: HTMLElement): string {
+  const column = columnRootFor(header);
+  const fromAttr = column?.getAttribute("data-query-name")?.trim();
+  if (fromAttr) return fromAttr;
+
+  const title = header.querySelector(
+    ".editable-toolbar-title--fixed, .op-status-board-header h2, h2",
+  );
+  if (!title) return "";
+  // Drop the small "Статус" label; keep the status line text.
+  const clone = title.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("small, br").forEach((node) => node.remove());
+  return clone.textContent?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function resolveWipLimit(statusName: string, rules: WipLimitRule[]): number | null {
+  if (!statusName || rules.length === 0) return null;
+  const haystack = statusName.toLowerCase();
+  for (const rule of rules) {
+    const needle = rule.match.trim().toLowerCase();
+    if (!needle) continue;
+    if (haystack.includes(needle) && Number.isFinite(rule.limit) && rule.limit > 0) {
+      return Math.floor(rule.limit);
+    }
+  }
+  return null;
+}
+
 function ensureStatsMount(header: HTMLElement): HTMLElement {
   let mount = header.querySelector<HTMLElement>(`:scope > .${STATS_CLASS}`);
   if (!mount) {
@@ -79,7 +112,7 @@ function renderBadge(
   iconClass: string,
   value: string,
   title: string,
-): void {
+): HTMLElement {
   let badge = mount.querySelector<HTMLElement>(`:scope > .${className}`);
   if (!badge) {
     badge = document.createElement("span");
@@ -100,6 +133,42 @@ function renderBadge(
   num.textContent = value;
 
   badge.append(icon, num);
+  return badge;
+}
+
+/** Outer drag wrapper that owns column spacing — better place for side borders. */
+function boardListItemFor(column: HTMLElement | null): HTMLElement | null {
+  if (!column) return null;
+  const item = column.closest(".boards-list--item");
+  return item instanceof HTMLElement ? item : null;
+}
+
+function applyWipState(
+  column: HTMLElement | null,
+  countBadge: HTMLElement,
+  count: number,
+  limit: number | null,
+  wipEnabled: boolean,
+  borderEnabled: boolean,
+): void {
+  const borderTarget = boardListItemFor(column) ?? column;
+  countBadge.classList.remove(WIP_AT_CLASS, WIP_OVER_CLASS);
+  borderTarget?.classList.remove(COLUMN_WIP_OVER_CLASS);
+  // Clear legacy class from inner column if it was applied earlier.
+  if (column && column !== borderTarget) {
+    column.classList.remove(COLUMN_WIP_OVER_CLASS);
+  }
+
+  if (!wipEnabled || limit == null) return;
+
+  if (count > limit) {
+    countBadge.classList.add(WIP_OVER_CLASS);
+    if (borderEnabled && borderTarget) {
+      borderTarget.classList.add(COLUMN_WIP_OVER_CLASS);
+    }
+  } else if (count === limit) {
+    countBadge.classList.add(WIP_AT_CLASS);
+  }
 }
 
 /** Store SP on the card root so column headers can sum without re-fetching. */
@@ -116,8 +185,12 @@ export function refreshColumnHeaders(settings: Settings | null): void {
   if (headers.length === 0) return;
 
   const showSp = settings?.storyPoints.enabled !== false;
+  const wipEnabled = settings?.wip.enabled === true;
+  const borderEnabled = settings?.wip.borderEnabled === true;
+  const limits = settings ? getActiveWipLimits(settings.wip) : [];
 
   for (const header of headers) {
+    const column = columnRootFor(header);
     const cards = cardsInColumn(header);
     const count = cards.length;
     const spSum = cards.reduce((sum, card) => sum + readCardSp(card), 0);
@@ -136,18 +209,28 @@ export function refreshColumnHeaders(settings: Settings | null): void {
       mount.querySelector(":scope > .op-board-ext-column-sp")?.remove();
     }
 
-    renderBadge(
+    const statusName = columnStatusName(header);
+    const limit = wipEnabled ? resolveWipLimit(statusName, limits) : null;
+    const countLabel = limit != null ? `${count}/${limit}` : String(count);
+    const countTitle =
+      limit != null
+        ? `Карточек в колонке: ${count} (WIP-лимит: ${limit})`
+        : `Карточек в колонке: ${count}`;
+
+    const countBadge = renderBadge(
       mount,
-      "op-board-ext-column-count",
+      COUNT_CLASS,
       CARD_COUNT_SVG,
       "op-board-ext-column-count-icon",
-      String(count),
-      `Карточек в колонке: ${count}`,
+      countLabel,
+      countTitle,
     );
+
+    applyWipState(column, countBadge, count, limit, wipEnabled, borderEnabled);
 
     // Keep order: SP on top, card count below
     const sp = mount.querySelector<HTMLElement>(":scope > .op-board-ext-column-sp");
-    const cnt = mount.querySelector<HTMLElement>(":scope > .op-board-ext-column-count");
+    const cnt = mount.querySelector<HTMLElement>(`:scope > .${COUNT_CLASS}`);
     if (sp && cnt && sp.nextElementSibling !== cnt) {
       mount.append(sp, cnt);
     } else if (cnt && !sp) {

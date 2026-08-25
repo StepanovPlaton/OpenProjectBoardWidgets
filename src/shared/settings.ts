@@ -1,6 +1,13 @@
-import type { Settings } from "./types";
+import type { Settings, WipLimitRule, WipWidgetSettings } from "./types";
 
 export const STORAGE_KEY = "opBoardSettings";
+
+/** Built-in WIP rules when «настройки по умолчанию» are enabled. */
+export const DEFAULT_WIP_LIMITS: WipLimitRule[] = [
+  { match: "In Progress", limit: 10 },
+  { match: "Review", limit: 3 },
+  { match: "QA", limit: 2 },
+];
 
 export const DEFAULT_SETTINGS: Settings = {
   connection: {
@@ -43,6 +50,12 @@ export const DEFAULT_SETTINGS: Settings = {
   notifications: {
     enabled: true,
   },
+  wip: {
+    enabled: true,
+    borderEnabled: true,
+    useDefaults: true,
+    limits: [],
+  },
   hideNativeStrip: true,
   overviewRedesign: true,
   overviewExtended: true,
@@ -66,6 +79,7 @@ function mergeSettings(raw: unknown): Settings {
   const columnTime = isObject(raw.columnTime) ? raw.columnTime : {};
   const reworkReturns = isObject(raw.reworkReturns) ? raw.reworkReturns : {};
   const notifications = isObject(raw.notifications) ? raw.notifications : {};
+  const wip = isObject(raw.wip) ? raw.wip : {};
 
   return {
     connection: {
@@ -110,6 +124,21 @@ function mergeSettings(raw: unknown): Settings {
       enabled:
         typeof notifications.enabled === "boolean" ? notifications.enabled : base.notifications.enabled,
     },
+    wip: {
+      enabled: typeof wip.enabled === "boolean" ? wip.enabled : base.wip.enabled,
+      borderEnabled: typeof wip.borderEnabled === "boolean" ? wip.borderEnabled : base.wip.borderEnabled,
+      useDefaults: typeof wip.useDefaults === "boolean" ? wip.useDefaults : base.wip.useDefaults,
+      limits: Array.isArray(wip.limits)
+        ? wip.limits
+            .filter(isObject)
+            .map((rule) => ({
+              match: typeof rule.match === "string" ? rule.match.trim() : "",
+              limit: typeof rule.limit === "number" ? rule.limit : Number(rule.limit),
+            }))
+            .filter((rule) => rule.match.length > 0 && Number.isFinite(rule.limit) && rule.limit > 0)
+            .map((rule) => ({ match: rule.match, limit: Math.floor(rule.limit) }))
+        : base.wip.limits,
+    },
     hideNativeStrip: typeof raw.hideNativeStrip === "boolean" ? raw.hideNativeStrip : base.hideNativeStrip,
     overviewRedesign:
       typeof raw.overviewRedesign === "boolean" ? raw.overviewRedesign : base.overviewRedesign,
@@ -134,4 +163,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
 
 export function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
+}
+
+/** Active WIP rules: built-in defaults or custom list. */
+export function getActiveWipLimits(wip: WipWidgetSettings): WipLimitRule[] {
+  return wip.useDefaults ? DEFAULT_WIP_LIMITS : wip.limits;
 }

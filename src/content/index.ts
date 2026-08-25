@@ -87,6 +87,8 @@ async function refreshSettings(): Promise<void> {
       reworkReturns: settings.reworkReturns.enabled,
       columnTime: settings.columnTime.enabled,
       notifications: settings.notifications.enabled,
+      wip: settings.wip.enabled,
+      wipBorder: settings.wip.borderEnabled,
     },
   });
   applySettingsToDom(settings);

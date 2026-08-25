@@ -94,13 +94,38 @@
   display: none !important;
 }
 
-/* Ensure id line sits on the natural content left edge */
+/* Pin the task number to the left edge.
+   In OP markup, dept slot (`content-project-name`) appears before `content-id`,
+   so the id gets pushed right. Force layout: id in col#1, dept in col#2. */
+.op-board-ext-surface .op-wp-single-card--content {
+  display: grid !important;
+  grid-template-columns: auto 1fr !important;
+  column-gap: 6px !important;
+  align-items: center !important;
+}
+
 .op-board-ext-surface .op-wp-single-card--content-id {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
   margin-left: 0 !important;
+  padding-left: 0 !important;
+  text-indent: 0 !important;
+  justify-self: start !important;
 }
 
 .op-board-ext-surface .op-wp-single-card--content-project-name.op-board-ext-dept-slot {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
   margin-left: 0 !important;
+  padding-left: 0 !important;
+  text-indent: 0 !important;
+  justify-self: start !important;
+}
+
+.op-board-ext-surface .op-wp-single-card--content-subject-line,
+.op-board-ext-surface .op-wp-single-card--content-status-baseline,
+.op-board-ext-surface .op-wp-single-card--content-assignee {
+  grid-column: 1 / -1 !important;
 }
 
 /* Priority before avatar, SP after — same row, same height (avatar mini = 20px) */
@@ -829,6 +854,32 @@
 .op-board-ext-column-sp-value,
 .op-board-ext-column-count-value {
   font-variant-numeric: tabular-nums;
+}
+
+/* WIP: at limit — yellow count badge */
+.op-board-ext-column-count.op-board-ext-wip-at {
+  color: #8a6d00;
+  background: rgba(255, 193, 7, 0.22);
+  border-color: #e6a700;
+}
+
+/* WIP: over limit — red count badge */
+.op-board-ext-column-count.op-board-ext-wip-over {
+  color: #b71c1c;
+  background: rgba(229, 57, 53, 0.16);
+  border-color: #ff4a47;
+}
+
+/* WIP: over limit — thicker side borders on the column item wrapper */
+.boards-list--item.op-board-ext-column-wip-over {
+  border-left: 3px solid #ff4a47;
+  border-right: 3px solid #ff4a47;
+  box-sizing: border-box;
+  margin-right: -3px;
+}
+
+.op-board-list--button-container {
+  background-color: rgba(255, 255, 255, 0) !important;
 }
 
 /* Unread / mention badge — top-left of card */

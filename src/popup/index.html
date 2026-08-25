@@ -110,6 +110,39 @@
         </label>
       </section>
 
+      <section class="section">
+        <h2>WIP-лимиты</h2>
+        <label class="check">
+          <input id="wipEnabled" type="checkbox" />
+          Показывать WIP (счётчик / лимит, жёлтый / красный)
+        </label>
+        <label class="check">
+          <input id="wipBorderEnabled" type="checkbox" />
+          Красная рамка колонки при превышении
+        </label>
+        <label class="check">
+          <input id="wipUseDefaults" type="checkbox" />
+          Включить настройки по умолчанию
+        </label>
+        <div id="wipDefaultsPreview" class="wip-defaults-preview" hidden>
+          <ul class="wip-defaults-list">
+            <li><span>In Progress</span><span>10</span></li>
+            <li><span>Review</span><span>3</span></li>
+            <li><span>QA</span><span>2</span></li>
+          </ul>
+        </div>
+        <div id="wipCustomPanel">
+          <div class="wip-limits-head">
+            <span>Подстрока статуса</span>
+            <span>Лимит</span>
+            <span></span>
+          </div>
+          <div id="wipLimits" class="wip-limits"></div>
+          <button id="wipAddBtn" type="button" class="wip-add">+ Добавить правило</button>
+          <p class="hint">Если имя статуса содержит подстроку (без учёта регистра), применяется лимит. Например, <code>progress</code> → «In progress».</p>
+        </div>
+      </section>
+
       <div class="actions">
         <button id="saveBtn" type="button" class="primary">Сохранить</button>
         <button id="clearCacheBtn" type="button">Очистить кэш</button>

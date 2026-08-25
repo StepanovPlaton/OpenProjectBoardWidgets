@@ -54,6 +54,23 @@ export interface NotificationsWidgetSettings {
   enabled: boolean;
 }
 
+/** One WIP rule: if column status name contains `match`, the card limit is `limit`. */
+export interface WipLimitRule {
+  match: string;
+  limit: number;
+}
+
+export interface WipWidgetSettings {
+  /** Show count/limit and yellow/red on the count badge. */
+  enabled: boolean;
+  /** Red border around the column when over the WIP limit. */
+  borderEnabled: boolean;
+  /** When true, use built-in default rules instead of `limits`. */
+  useDefaults: boolean;
+  /** Custom rules (used when useDefaults is false). */
+  limits: WipLimitRule[];
+}
+
 export interface Settings {
   connection: ConnectionSettings;
   priority: PriorityWidgetSettings;
@@ -63,6 +80,7 @@ export interface Settings {
   columnTime: ColumnTimeWidgetSettings;
   reworkReturns: ReworkReturnsWidgetSettings;
   notifications: NotificationsWidgetSettings;
+  wip: WipWidgetSettings;
   hideNativeStrip: boolean;
   /** Compact card styles for People / Estimates / Details on Overview. */
   overviewRedesign: boolean;

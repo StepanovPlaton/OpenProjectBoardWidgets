@@ -1,6 +1,12 @@
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../shared/settings";
+import { DEFAULT_SETTINGS, DEFAULT_WIP_LIMITS, loadSettings, saveSettings } from "../shared/settings";
 import { sendMessage } from "../shared/messaging";
-import type { BackgroundResponse, PopupSelectOption, PopupSettingsOptions, Settings } from "../shared/types";
+import type {
+  BackgroundResponse,
+  PopupSelectOption,
+  PopupSettingsOptions,
+  Settings,
+  WipLimitRule,
+} from "../shared/types";
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -134,6 +140,64 @@ async function loadSelectOptions(
   }
 }
 
+function createWipLimitRow(rule: WipLimitRule = { match: "", limit: 5 }): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "wip-limit-row";
+
+  const matchInput = document.createElement("input");
+  matchInput.type = "text";
+  matchInput.className = "wip-match";
+  matchInput.placeholder = "progress";
+  matchInput.value = rule.match;
+  matchInput.spellcheck = false;
+
+  const limitInput = document.createElement("input");
+  limitInput.type = "number";
+  limitInput.className = "wip-limit";
+  limitInput.min = "1";
+  limitInput.step = "1";
+  limitInput.value = String(rule.limit > 0 ? rule.limit : 5);
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.title = "Удалить";
+  removeBtn.setAttribute("aria-label", "Удалить правило");
+  removeBtn.textContent = "×";
+  removeBtn.addEventListener("click", () => {
+    row.remove();
+  });
+
+  row.append(matchInput, limitInput, removeBtn);
+  return row;
+}
+
+function fillWipLimits(rules: WipLimitRule[]): void {
+  const list = el<HTMLElement>("wipLimits");
+  list.replaceChildren();
+  const rows = rules.length > 0 ? rules : [{ match: "", limit: 5 }];
+  for (const rule of rows) {
+    list.appendChild(createWipLimitRow(rule));
+  }
+}
+
+function syncWipLimitsUi(): void {
+  const useDefaults = el<HTMLInputElement>("wipUseDefaults").checked;
+  el<HTMLElement>("wipDefaultsPreview").hidden = !useDefaults;
+  el<HTMLElement>("wipCustomPanel").hidden = useDefaults;
+}
+
+function readWipLimits(): WipLimitRule[] {
+  const rows = el<HTMLElement>("wipLimits").querySelectorAll<HTMLElement>(".wip-limit-row");
+  const limits: WipLimitRule[] = [];
+  for (const row of rows) {
+    const match = row.querySelector<HTMLInputElement>(".wip-match")?.value.trim() ?? "";
+    const rawLimit = Number(row.querySelector<HTMLInputElement>(".wip-limit")?.value);
+    if (!match || !Number.isFinite(rawLimit) || rawLimit <= 0) continue;
+    limits.push({ match, limit: Math.floor(rawLimit) });
+  }
+  return limits;
+}
+
 function readForm(): Settings {
   return {
     connection: {
@@ -172,6 +236,12 @@ function readForm(): Settings {
     columnTime: {
       enabled: el<HTMLInputElement>("columnTimeEnabled").checked,
     },
+    wip: {
+      enabled: el<HTMLInputElement>("wipEnabled").checked,
+      borderEnabled: el<HTMLInputElement>("wipBorderEnabled").checked,
+      useDefaults: el<HTMLInputElement>("wipUseDefaults").checked,
+      limits: readWipLimits(),
+    },
   };
 }
 
@@ -196,6 +266,12 @@ function fillForm(settings: Settings): void {
   el<HTMLInputElement>("notificationsEnabled").checked = settings.notifications.enabled;
 
   el<HTMLInputElement>("columnTimeEnabled").checked = settings.columnTime.enabled;
+
+  el<HTMLInputElement>("wipEnabled").checked = settings.wip.enabled;
+  el<HTMLInputElement>("wipBorderEnabled").checked = settings.wip.borderEnabled;
+  el<HTMLInputElement>("wipUseDefaults").checked = settings.wip.useDefaults;
+  fillWipLimits(settings.wip.limits.length > 0 ? settings.wip.limits : DEFAULT_WIP_LIMITS);
+  syncWipLimitsUi();
 }
 
 async function init(): Promise<void> {
@@ -214,6 +290,14 @@ async function init(): Promise<void> {
       departmentFilterValue: "",
       storyPointsField: current.storyPoints.field,
     }, true);
+  });
+
+  el<HTMLButtonElement>("wipAddBtn").addEventListener("click", () => {
+    el<HTMLElement>("wipLimits").appendChild(createWipLimitRow());
+  });
+
+  el<HTMLInputElement>("wipUseDefaults").addEventListener("change", () => {
+    syncWipLimitsUi();
   });
 
   el<HTMLButtonElement>("saveBtn").addEventListener("click", () => {

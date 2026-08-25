@@ -137,3 +137,86 @@ button:hover {
   color: var(--muted);
   line-height: 1.4;
 }
+
+.hint code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  background: #eef1f5;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.wip-defaults-preview {
+  margin: 6px 0 2px;
+}
+
+.wip-defaults-list {
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  background: #eef1f5;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.wip-defaults-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  color: var(--text);
+}
+
+.wip-defaults-list li span:last-child {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.wip-limits-head {
+  display: grid;
+  grid-template-columns: 1fr 64px 28px;
+  gap: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin: 4px 0 4px;
+}
+
+.wip-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.wip-limit-row {
+  display: grid;
+  grid-template-columns: 1fr 64px 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.wip-limit-row input[type="text"],
+.wip-limit-row input[type="number"] {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  background: #fff;
+}
+
+.wip-limit-row button {
+  padding: 4px 0;
+  min-width: 28px;
+  line-height: 1;
+  color: var(--danger);
+}
+
+.wip-add {
+  width: 100%;
+  margin-bottom: 4px;
+}
