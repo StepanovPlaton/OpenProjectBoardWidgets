@@ -169,18 +169,27 @@ export function applyDepartmentAfterId(
 
   projectName.classList.remove("op-board-ext-hide-project");
   projectName.classList.add("op-board-ext-dept-slot");
+  projectName.classList.toggle("op-board-ext-dept-slot--editable", enabled);
 
   if (enabled && departmentLabel) {
     const next = ` - ${departmentLabel} `;
     if (projectName.textContent !== next) {
       projectName.textContent = next;
     }
+    projectName.classList.remove("op-board-ext-dept-slot--empty");
+    projectName.title = `Отдел: ${departmentLabel}`;
     projectName.hidden = false;
   } else if (enabled) {
-    // Keep slot but empty so layout does not jump; collapse visually
-    if (projectName.textContent !== "") {
-      projectName.textContent = "";
+    // No department yet — clickable placeholder so the picker can be opened.
+    const next = " - [выбрать отдел] ";
+    if (projectName.textContent !== next) {
+      projectName.textContent = next;
     }
+    projectName.classList.add("op-board-ext-dept-slot--empty");
+    projectName.title = "Выбрать отдел";
+    projectName.hidden = false;
+  } else {
+    projectName.classList.remove("op-board-ext-dept-slot--empty");
   }
 }
 
@@ -356,7 +365,29 @@ export function ensureCiSlot(assignee: HTMLElement): HTMLElement {
   return el;
 }
 
-/** Rework-returns badge after CI (or SP) inside assignee. */
+/** Review AI badge after CI inside assignee. */
+export function ensureReviewSlot(assignee: HTMLElement): HTMLElement {
+  let el = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-review");
+  if (!el) {
+    el = document.createElement("span");
+    el.className = "op-board-ext-review";
+  }
+
+  const ci = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-ci");
+  const sp = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-sp");
+  const anchor = ci ?? sp;
+  if (anchor) {
+    if (el.previousElementSibling !== anchor) {
+      anchor.after(el);
+    }
+  } else if (el.parentElement !== assignee) {
+    assignee.appendChild(el);
+  }
+
+  return el;
+}
+
+/** Rework-returns badge after review/CI (or SP) inside assignee. */
 export function ensureReworkSlot(assignee: HTMLElement): HTMLElement {
   let el = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-rework");
   if (!el) {
@@ -364,9 +395,10 @@ export function ensureReworkSlot(assignee: HTMLElement): HTMLElement {
     el.className = "op-board-ext-rework";
   }
 
+  const review = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-review");
   const ci = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-ci");
   const sp = assignee.querySelector<HTMLElement>(":scope > .op-board-ext-sp");
-  const anchor = ci ?? sp;
+  const anchor = review ?? ci ?? sp;
   if (anchor) {
     if (el.previousElementSibling !== anchor) {
       anchor.after(el);
@@ -439,6 +471,7 @@ export function isExtensionNode(node: Node): boolean {
       node.classList.contains("op-board-ext-priority") ||
       node.classList.contains("op-board-ext-sp") ||
       node.classList.contains("op-board-ext-ci") ||
+      node.classList.contains("op-board-ext-review") ||
       node.classList.contains("op-board-ext-rework") ||
       node.classList.contains("op-board-ext-blockers") ||
       node.classList.contains("op-board-ext-time") ||

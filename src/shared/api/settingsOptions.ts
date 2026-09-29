@@ -41,7 +41,8 @@ function parseCustomFieldOption(raw: unknown): PopupSelectOption | null {
   const label = labelCandidates.find((value): value is string => typeof value === "string" && value.trim().length > 0);
 
   if (!id || !label) return null;
-  return { value: id, label };
+  const href = typeof raw.href === "string" && raw.href.trim() ? raw.href.trim() : undefined;
+  return href ? { value: id, label, href } : { value: id, label };
 }
 
 function parseEmbeddedOptions(raw: unknown): PopupSelectOption[] {
@@ -277,8 +278,9 @@ function collectDepartmentValuesFromSamples(samples: WorkPackageLike[], departme
       const href =
         typeof link.href === "string" ? link.href.replace(/\/+$/, "").split("/").pop() ?? "" : "";
       const title = typeof link.title === "string" ? link.title.trim() : "";
+      const linkHref = typeof link.href === "string" && link.href.trim() ? link.href.trim() : undefined;
       if (href && title) {
-        options.push({ value: href, label: title });
+        options.push(linkHref ? { value: href, label: title, href: linkHref } : { value: href, label: title });
         continue;
       }
     }
@@ -356,5 +358,28 @@ export async function fetchPopupSettingsOptions(
     departmentFields,
     departmentValues,
     storyPointFields,
+    reviewFields: departmentFields,
   };
+}
+
+/**
+ * Lightweight loader for a single list custom field's options (no sample fetch).
+ * Used by the in-card department picker.
+ */
+export async function fetchDepartmentOptions(
+  connection: ConnectionSettings,
+  departmentField: string,
+): Promise<PopupSelectOption[]> {
+  const field = departmentField.trim();
+  if (!field) return [];
+  const client = clientFromConnection(connection);
+
+  const schemas = await fetchWorkPackageSchemas(client);
+  let values = await valuesForDepartmentField(client, schemas, field);
+  if (values.length === 0) {
+    // Fallback: read real option links from sample work packages (as settings popup does).
+    const samples = await fetchWorkPackageSamples(client);
+    values = collectDepartmentValuesFromSamples(samples, field);
+  }
+  return values;
 }

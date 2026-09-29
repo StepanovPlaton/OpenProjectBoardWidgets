@@ -36,6 +36,13 @@ export const DEFAULT_SETTINGS: Settings = {
     enabled: true,
     field: "storyPoints",
   },
+  review: {
+    enabled: true,
+    field: "customField8",
+    greenId: "6",
+    yellowId: "7",
+    redId: "8",
+  },
   blockers: {
     enabled: true,
     doneStatusNames: ["Done (TS)", "Done", "ПРИНЯТО", "QA"],
@@ -75,6 +82,7 @@ function mergeSettings(raw: unknown): Settings {
   const priority = isObject(raw.priority) ? raw.priority : {};
   const department = isObject(raw.department) ? raw.department : {};
   const storyPoints = isObject(raw.storyPoints) ? raw.storyPoints : {};
+  const review = isObject(raw.review) ? raw.review : {};
   const blockers = isObject(raw.blockers) ? raw.blockers : {};
   const columnTime = isObject(raw.columnTime) ? raw.columnTime : {};
   const reworkReturns = isObject(raw.reworkReturns) ? raw.reworkReturns : {};
@@ -102,6 +110,25 @@ function mergeSettings(raw: unknown): Settings {
     storyPoints: {
       enabled: typeof storyPoints.enabled === "boolean" ? storyPoints.enabled : base.storyPoints.enabled,
       field: typeof storyPoints.field === "string" ? storyPoints.field : base.storyPoints.field,
+    },
+    review: {
+      enabled: typeof review.enabled === "boolean" ? review.enabled : base.review.enabled,
+      field:
+        typeof review.field === "string" && review.field.trim()
+          ? review.field.trim()
+          : base.review.field,
+      greenId:
+        typeof review.greenId === "string" && review.greenId.trim()
+          ? review.greenId.trim()
+          : base.review.greenId,
+      yellowId:
+        typeof review.yellowId === "string" && review.yellowId.trim()
+          ? review.yellowId.trim()
+          : base.review.yellowId,
+      redId:
+        typeof review.redId === "string" && review.redId.trim()
+          ? review.redId.trim()
+          : base.review.redId,
     },
     blockers: {
       enabled: typeof blockers.enabled === "boolean" ? blockers.enabled : base.blockers.enabled,

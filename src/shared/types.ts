@@ -15,6 +15,19 @@ export interface DepartmentWidgetSettings {
   labelMap: Record<string, string>;
 }
 
+export type ReviewStatusColor = "green" | "yellow" | "red";
+
+/** Review AI (Copilot) status badge driven by a configurable custom field. */
+export interface ReviewWidgetSettings {
+  enabled: boolean;
+  /** Custom field key, e.g. customField8. */
+  field: string;
+  /** Custom option IDs mapped to badge colors. */
+  greenId: string;
+  yellowId: string;
+  redId: string;
+}
+
 export interface StoryPointsWidgetSettings {
   enabled: boolean;
   field: string;
@@ -23,6 +36,8 @@ export interface StoryPointsWidgetSettings {
 export interface PopupSelectOption {
   value: string;
   label: string;
+  /** Optional HAL href of the custom option (used when patching a list custom field). */
+  href?: string;
 }
 
 export interface PopupFieldOption extends PopupSelectOption {
@@ -33,6 +48,7 @@ export interface PopupSettingsOptions {
   departmentFields: PopupFieldOption[];
   departmentValues: PopupSelectOption[];
   storyPointFields: PopupFieldOption[];
+  reviewFields: PopupFieldOption[];
 }
 
 export interface BlockersWidgetSettings {
@@ -76,6 +92,7 @@ export interface Settings {
   priority: PriorityWidgetSettings;
   department: DepartmentWidgetSettings;
   storyPoints: StoryPointsWidgetSettings;
+  review: ReviewWidgetSettings;
   blockers: BlockersWidgetSettings;
   columnTime: ColumnTimeWidgetSettings;
   reworkReturns: ReworkReturnsWidgetSettings;
@@ -107,6 +124,13 @@ export interface WorkPackageSummary {
   projectId: number | null;
   projectIdentifier: string;
   department: string;
+  /** HAL href of the department custom option, if any. */
+  departmentHref: string | null;
+  /** Option ID of the department custom option, if any. */
+  departmentOptionId: string | null;
+  /** Raw value/option id of the review AI custom field, if any. */
+  reviewStatusId: string | null;
+  reviewStatusLabel: string;
   storyPoints: number | null;
   assigneeId: number | null;
   assigneeName: string;
@@ -130,6 +154,8 @@ export interface WorkPackagePatch {
   priorityId?: number | null;
   /** Principal href, or null to unassign. */
   assigneeHref?: string | null;
+  /** Custom option href for the configured department field, or null to clear. */
+  departmentHref?: string | null;
   storyPoints?: number | null;
 }
 
@@ -198,6 +224,8 @@ export interface CardEnrichment {
   priorityPosition: number | null;
   priorityColor: string | null;
   departmentLabel: string;
+  reviewColor: ReviewStatusColor | null;
+  reviewStatusLabel: string;
   storyPoints: number | null;
   ciSummary: CiSummary | null;
   blockersOk: boolean | null;
@@ -230,6 +258,7 @@ export type BackgroundRequest =
   | { type: "GET_UNREAD_NOTIFICATIONS" }
   | { type: "MARK_WP_NOTIFICATIONS_READ"; workPackageId: number; notificationIds?: number[] }
   | { type: "GET_PRIORITIES" }
+  | { type: "GET_DEPARTMENT_OPTIONS"; connection: ConnectionSettings; departmentField: string }
   | { type: "GET_ASSIGNEE_OPTIONS"; workPackageId: number }
   | { type: "UPDATE_WORK_PACKAGE"; id: number; patch: WorkPackagePatch }
   | { type: "RESOLVE_BOARD_SPRINT"; boardId: number }
@@ -244,6 +273,7 @@ export type BackgroundResponse =
   | { ok: true; overviewExtras: WorkPackageOverviewExtras }
   | { ok: true; notifications: NotificationSummary[] }
   | { ok: true; priorities: PriorityInfo[] }
+  | { ok: true; departmentOptions: PopupSelectOption[] }
   | { ok: true; assignees: AssigneeOption[] }
   | { ok: true; enrichment: CardEnrichment }
   | { ok: true; sprintValues: string[] }

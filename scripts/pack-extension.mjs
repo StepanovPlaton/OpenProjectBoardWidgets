@@ -20,15 +20,23 @@ const isWin = process.platform === "win32";
 let result;
 
 if (isWin) {
-  result = spawnSync(
-    "powershell",
-    [
-      "-NoProfile",
-      "-Command",
-      `if (Test-Path -LiteralPath '${outFile}') { Remove-Item -LiteralPath '${outFile}' -Force }; Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${outFile}'`,
-    ],
-    { stdio: "inherit" },
-  );
+  // Compress-Archive writes backslashes in entry names; AMO rejects those paths.
+  const psScript = [
+    "Add-Type -AssemblyName System.IO.Compression",
+    "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+    `$sourceDir = '${sourceDir.replace(/'/g, "''")}'`,
+    `$outFile = '${outFile.replace(/'/g, "''")}'`,
+    "if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force }",
+    "$zip = [System.IO.Compression.ZipFile]::Open($outFile, [System.IO.Compression.ZipArchiveMode]::Create)",
+    "Get-ChildItem -LiteralPath $sourceDir -Recurse -File | ForEach-Object {",
+    "  $rel = $_.FullName.Substring($sourceDir.Length + 1).Replace([char]92, [char]47)",
+    "  [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $rel)",
+    "}",
+    "$zip.Dispose()",
+  ].join("; ");
+  result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
+    stdio: "inherit",
+  });
 } else {
   result = spawnSync("zip", ["-r", "-q", outFile, "."], {
     cwd: sourceDir,

@@ -23,6 +23,34 @@ function extractDepartment(wp: Record<string, unknown>, field: string): string {
   return "";
 }
 
+/** HAL href of a list custom-field value, if the WP has one. */
+function extractFieldHref(wp: Record<string, unknown>, field: string): string | null {
+  if (!field) return null;
+  const links = wp._links;
+  if (isRecord(links) && isRecord(links[field]) && typeof links[field].href === "string") {
+    return links[field].href;
+  }
+  return null;
+}
+
+/** Raw custom-field value normalized to a string (link href/title or scalar). */
+function extractFieldValue(wp: Record<string, unknown>, field: string): { id: string; label: string } {
+  if (!field) return { id: "", label: "" };
+
+  const links = wp._links;
+  if (isRecord(links) && isRecord(links[field])) {
+    const link = links[field];
+    const href = typeof link.href === "string" ? link.href : "";
+    const title = typeof link.title === "string" ? link.title : "";
+    if (href) return { id: href, label: title || href };
+  }
+
+  const raw = wp[field];
+  if (typeof raw === "string" && raw.trim()) return { id: raw.trim(), label: raw.trim() };
+  if (typeof raw === "number" && Number.isFinite(raw)) return { id: String(raw), label: String(raw) };
+  return { id: "", label: "" };
+}
+
 function extractAssigneeAvatar(wp: Record<string, unknown>, assigneeId: number | null): string | null {
   const embedded = wp._embedded;
   if (isRecord(embedded) && isRecord(embedded.assignee)) {
@@ -34,12 +62,20 @@ function extractAssigneeAvatar(wp: Record<string, unknown>, assigneeId: number |
   return null;
 }
 
+export interface WorkPackageFieldOptions {
+  departmentField: string;
+  storyPointsField: string;
+  reviewField: string;
+}
+
 export function mapWorkPackage(
   wp: Record<string, unknown>,
-  opts: { departmentField: string; storyPointsField: string },
+  opts: WorkPackageFieldOptions,
 ): WorkPackageSummary {
   const id = Number(wp.id);
   const assigneeId = linkId(wp, "assignee");
+  const departmentHref = extractFieldHref(wp, opts.departmentField);
+  const review = extractFieldValue(wp, opts.reviewField);
   return {
     id,
     subject: typeof wp.subject === "string" ? wp.subject : `#${id}`,
@@ -52,6 +88,10 @@ export function mapWorkPackage(
     projectId: linkId(wp, "project"),
     projectIdentifier: "",
     department: extractDepartment(wp, opts.departmentField),
+    departmentHref,
+    departmentOptionId: departmentHref ? departmentHref.replace(/\/+$/, "").split("/").pop() ?? null : null,
+    reviewStatusId: review.id || null,
+    reviewStatusLabel: review.label,
     storyPoints: coerceStoryPoints(wp, opts.storyPointsField),
     assigneeId,
     assigneeName: linkTitle(wp, "assignee") || "",
@@ -66,7 +106,7 @@ export function mapWorkPackage(
 export async function fetchWorkPackagesByIds(
   client: OpenProjectClient,
   ids: number[],
-  opts: { departmentField: string; storyPointsField: string },
+  opts: WorkPackageFieldOptions,
 ): Promise<Map<number, WorkPackageSummary>> {
   const result = new Map<number, WorkPackageSummary>();
   if (ids.length === 0) return result;
@@ -104,7 +144,7 @@ export async function updateWorkPackage(
   client: OpenProjectClient,
   id: number,
   patch: WorkPackagePatch,
-  opts: { departmentField: string; storyPointsField: string },
+  opts: WorkPackageFieldOptions,
 ): Promise<WorkPackageSummary> {
   if (patch.lockVersion == null || !Number.isFinite(patch.lockVersion)) {
     throw new Error("lockVersion is required to update a work package");
@@ -127,6 +167,9 @@ export async function updateWorkPackage(
   }
   if ("assigneeHref" in patch) {
     links.assignee = { href: patch.assigneeHref ?? null };
+  }
+  if ("departmentHref" in patch && opts.departmentField) {
+    links[opts.departmentField] = { href: patch.departmentHref ?? null };
   }
   if (Object.keys(links).length > 0) {
     body._links = links;

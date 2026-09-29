@@ -66,11 +66,17 @@ function setSelectsDisabled(disabled: boolean): void {
   el<HTMLSelectElement>("departmentField").disabled = disabled;
   el<HTMLSelectElement>("departmentFilterValue").disabled = disabled;
   el<HTMLSelectElement>("storyPointsField").disabled = disabled;
+  el<HTMLSelectElement>("reviewField").disabled = disabled;
 }
 
 function applyOptions(
   options: PopupSettingsOptions,
-  selected: { departmentField: string; departmentFilterValue: string; storyPointsField: string },
+  selected: {
+    departmentField: string;
+    departmentFilterValue: string;
+    storyPointsField: string;
+    reviewField: string;
+  },
 ): void {
   setSelectOptions(
     el<HTMLSelectElement>("departmentField"),
@@ -90,10 +96,21 @@ function applyOptions(
     selected.storyPointsField,
     "Выберите поле SP",
   );
+  setSelectOptions(
+    el<HTMLSelectElement>("reviewField"),
+    options.reviewFields,
+    selected.reviewField,
+    "Выберите поле статуса",
+  );
 }
 
 async function loadSelectOptions(
-  selected: { departmentField: string; departmentFilterValue: string; storyPointsField: string },
+  selected: {
+    departmentField: string;
+    departmentFilterValue: string;
+    storyPointsField: string;
+    reviewField: string;
+  },
   silent = false,
 ): Promise<void> {
   const connection = currentConnection();
@@ -103,6 +120,7 @@ async function loadSelectOptions(
         departmentFields: [],
         departmentValues: [],
         storyPointFields: [{ value: "storyPoints", label: "Story Points (системное поле)" }],
+        reviewFields: [],
       },
       selected,
     );
@@ -219,6 +237,13 @@ function readForm(): Settings {
       enabled: el<HTMLInputElement>("storyPointsEnabled").checked,
       field: el<HTMLSelectElement>("storyPointsField").value || DEFAULT_SETTINGS.storyPoints.field,
     },
+    review: {
+      enabled: el<HTMLInputElement>("reviewEnabled").checked,
+      field: el<HTMLSelectElement>("reviewField").value || DEFAULT_SETTINGS.review.field,
+      greenId: el<HTMLInputElement>("reviewGreenId").value.trim() || DEFAULT_SETTINGS.review.greenId,
+      yellowId: el<HTMLInputElement>("reviewYellowId").value.trim() || DEFAULT_SETTINGS.review.yellowId,
+      redId: el<HTMLInputElement>("reviewRedId").value.trim() || DEFAULT_SETTINGS.review.redId,
+    },
     blockers: {
       enabled: el<HTMLInputElement>("blockersEnabled").checked,
       doneStatusNames: el<HTMLTextAreaElement>("doneStatuses")
@@ -257,6 +282,11 @@ function fillForm(settings: Settings): void {
   el<HTMLInputElement>("departmentEnabled").checked = settings.department.enabled;
   el<HTMLInputElement>("storyPointsEnabled").checked = settings.storyPoints.enabled;
 
+  el<HTMLInputElement>("reviewEnabled").checked = settings.review.enabled;
+  el<HTMLInputElement>("reviewGreenId").value = settings.review.greenId;
+  el<HTMLInputElement>("reviewYellowId").value = settings.review.yellowId;
+  el<HTMLInputElement>("reviewRedId").value = settings.review.redId;
+
   el<HTMLInputElement>("blockersEnabled").checked = settings.blockers.enabled;
   el<HTMLTextAreaElement>("doneStatuses").value = settings.blockers.doneStatusNames.join("\n");
   el<HTMLInputElement>("treatClosedAsDone").checked = settings.blockers.treatClosedAsDone;
@@ -281,6 +311,7 @@ async function init(): Promise<void> {
     departmentField: settings.department.field,
     departmentFilterValue: settings.department.filterValue,
     storyPointsField: settings.storyPoints.field,
+    reviewField: settings.review.field,
   }, true);
 
   el<HTMLSelectElement>("departmentField").addEventListener("change", () => {
@@ -289,6 +320,7 @@ async function init(): Promise<void> {
       departmentField: current.department.field,
       departmentFilterValue: "",
       storyPointsField: current.storyPoints.field,
+      reviewField: current.review.field,
     }, true);
   });
 
@@ -338,6 +370,7 @@ async function init(): Promise<void> {
           departmentField: next.department.field,
           departmentFilterValue: next.department.filterValue,
           storyPointsField: next.storyPoints.field,
+          reviewField: next.review.field,
         }, true);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "Ошибка проверки", "err");

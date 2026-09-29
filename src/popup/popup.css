@@ -146,6 +146,16 @@ button:hover {
   border-radius: 3px;
 }
 
+.review-ids {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.review-ids label {
+  margin-bottom: 0;
+}
+
 .wip-defaults-preview {
   margin: 6px 0 2px;
 }

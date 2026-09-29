@@ -55,6 +55,7 @@
 .op-board-ext-priority.op-board-ext-widget-enter,
 .op-board-ext-sp.op-board-ext-widget-enter,
 .op-board-ext-ci.op-board-ext-widget-enter,
+.op-board-ext-review.op-board-ext-widget-enter,
 .op-board-ext-rework.op-board-ext-widget-enter,
 .op-board-ext-time.op-board-ext-widget-enter {
   animation: op-board-ext-widget-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -75,6 +76,7 @@
   .op-board-ext-priority.op-board-ext-widget-enter,
   .op-board-ext-sp.op-board-ext-widget-enter,
   .op-board-ext-ci.op-board-ext-widget-enter,
+  .op-board-ext-review.op-board-ext-widget-enter,
   .op-board-ext-rework.op-board-ext-widget-enter,
   .op-board-ext-time.op-board-ext-widget-enter,
   .op-board-ext-blockers.op-board-ext-widget-enter,
@@ -87,6 +89,17 @@
 .op-board-ext-dept-slot {
   /* match native project-name look */
   max-width: 100%;
+}
+
+.op-board-ext-dept-slot--editable {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(0, 0, 0, 0.25);
+  text-underline-offset: 2px;
+}
+
+.op-board-ext-dept-slot--empty {
+  color: rgba(0, 0, 0, 0.45);
+  font-style: italic;
 }
 
 /* Kill residual space if an old hide-class is still present */
@@ -231,6 +244,7 @@
 
 .op-board-ext-sp,
 .op-board-ext-ci,
+.op-board-ext-review,
 .op-board-ext-rework {
   display: inline-flex;
   flex-direction: row;
@@ -291,8 +305,33 @@
   background: rgba(198, 40, 40, 0.1);
 }
 
+/* Review AI (GitHub Copilot) status badge — small bordered pill after CI */
+.op-board-ext-review {
+  padding: 0 5px;
+  padding-left: 4px;
+}
+
+.op-board-ext-review--green {
+  color: #2e7d32;
+  border-color: #2e7d32;
+  background: rgba(46, 125, 50, 0.06);
+}
+
+.op-board-ext-review--yellow {
+  color: #f9a825;
+  border-color: #f9a825;
+  background: rgba(249, 168, 37, 0.12);
+}
+
+.op-board-ext-review--red {
+  color: #c62828;
+  border-color: #c62828;
+  background: rgba(198, 40, 40, 0.1);
+}
+
 .op-board-ext-sp-icon,
 .op-board-ext-ci-icon,
+.op-board-ext-review-icon,
 .op-board-ext-rework-icon {
   display: inline-flex;
   align-items: center;
@@ -306,6 +345,7 @@
 
 .op-board-ext-sp-icon svg,
 .op-board-ext-ci-icon svg,
+.op-board-ext-review-icon svg,
 .op-board-ext-rework-icon svg {
   width: 100%;
   height: 100%;

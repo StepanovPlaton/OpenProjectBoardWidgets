@@ -6,7 +6,7 @@ export default defineManifest({
   manifest_version: 3,
   name: "OpenProject Board Widgets",
   description: "Adds informative widgets to OpenProject board cards via the REST API.",
-  version: "0.1.0",
+  version: "0.1.1",
   action: {
     default_popup: "src/popup/index.html",
     default_title: "OpenProject Board Widgets",
@@ -29,8 +29,12 @@ export default defineManifest({
     ? {
         browser_specific_settings: {
           gecko: {
-            id: "op-board-widgets@stepanovplaton",
-            strict_min_version: "128.0",
+            id: "@openproject-board-widgets",
+            strict_min_version: "140.0",
+            data_collection_permissions: {
+              // API token + OpenProject REST; content scripts read board DOM.
+              required: ["authenticationInfo", "websiteContent"],
+            },
           },
         },
       }

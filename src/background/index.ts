@@ -11,7 +11,7 @@ import {
 } from "../shared/api/notifications";
 import { fetchPriorities } from "../shared/api/priorities";
 import { fetchRelations } from "../shared/api/relations";
-import { fetchPopupSettingsOptions } from "../shared/api/settingsOptions";
+import { fetchDepartmentOptions, fetchPopupSettingsOptions } from "../shared/api/settingsOptions";
 import {
   fetchAvailableAssignees,
   updateWorkPackage,
@@ -36,6 +36,7 @@ import type {
 import { computeBlockersOk } from "../shared/widgets/blockers";
 import { formatDepartmentLabel } from "../shared/widgets/department";
 import { resolvePriorityDisplay } from "../shared/widgets/priority";
+import { resolveReviewColor } from "../shared/widgets/review";
 import { countReworkReturns } from "../shared/widgets/reworkReturns";
 import {
   clearWorkPackageStore,
@@ -113,6 +114,10 @@ function buildFastEnrichment(
     ? resolvePriorityDisplay(wp.priorityId, wp.priorityName, priorities)
     : { position: null, color: null };
 
+  const reviewColor = settings.review.enabled
+    ? resolveReviewColor(wp.reviewStatusId, settings.review)
+    : null;
+
   return {
     workPackage: wp,
     priorityPosition: position,
@@ -120,6 +125,8 @@ function buildFastEnrichment(
     departmentLabel: settings.department.enabled
       ? formatDepartmentLabel(wp.department, settings.department)
       : "",
+    reviewColor,
+    reviewStatusLabel: reviewColor ? wp.reviewStatusLabel : "",
     storyPoints: settings.storyPoints.enabled ? wp.storyPoints : null,
     ciSummary: null,
     blockersOk: null,
@@ -137,6 +144,7 @@ async function patchWorkPackage(
   const updated = await updateWorkPackage(client, id, patch, {
     departmentField: settings.department.field,
     storyPointsField: settings.storyPoints.field,
+    reviewField: settings.review.field,
   });
   putWorkPackage(updated);
   const priorities = settings.priority.enabled
@@ -433,6 +441,12 @@ async function getSettingsOptions(message: Extract<BackgroundRequest, { type: "G
   return fetchPopupSettingsOptions(message.connection, message.departmentField);
 }
 
+async function getDepartmentOptions(
+  message: Extract<BackgroundRequest, { type: "GET_DEPARTMENT_OPTIONS" }>,
+) {
+  return fetchDepartmentOptions(message.connection, message.departmentField);
+}
+
 function toErrorResponse(error: unknown): BackgroundResponse {
   if (error instanceof ApiError) {
     return { ok: false, error: error.message, code: error.code };
@@ -464,6 +478,11 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         case "GET_SETTINGS_OPTIONS": {
           const options = await getSettingsOptions(message);
           respond({ ok: true, options });
+          break;
+        }
+        case "GET_DEPARTMENT_OPTIONS": {
+          const departmentOptions = await getDepartmentOptions(message);
+          respond({ ok: true, departmentOptions });
           break;
         }
         case "SAVE_SETTINGS": {

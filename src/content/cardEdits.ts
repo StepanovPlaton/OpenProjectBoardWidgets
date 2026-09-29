@@ -3,6 +3,7 @@ import type {
   AssigneeOption,
   BackgroundResponse,
   CardEnrichment,
+  PopupSelectOption,
   PriorityInfo,
   Settings,
   WorkPackagePatch,
@@ -20,12 +21,15 @@ export interface CardEditHost {
   findCard: (workPackageId: number) => BoardCard | undefined;
 }
 
-type PopoverKind = "priority" | "assignee" | "sp";
+type PopoverKind = "priority" | "assignee" | "sp" | "department";
 
 let host: CardEditHost | null = null;
 let started = false;
 let prioritiesCache: PriorityInfo[] | null = null;
 let prioritiesInflight: Promise<PriorityInfo[]> | null = null;
+let departmentOptionsCache: PopupSelectOption[] | null = null;
+let departmentOptionsField = "";
+let departmentOptionsInflight: Promise<PopupSelectOption[]> | null = null;
 const assigneeCache = new Map<number, AssigneeOption[]>();
 const assigneeInflight = new Map<number, Promise<AssigneeOption[]>>();
 const updateInFlight = new Set<number>();
@@ -63,12 +67,15 @@ function isEditAnchor(target: EventTarget | null): HTMLElement | null {
     ".op-board-ext-assignee-avatar, .op-board-ext-assignee-placeholder",
   );
   if (avatar) return avatar;
+  const dept = target.closest<HTMLElement>(".op-board-ext-dept-slot--editable");
+  if (dept && host?.getSettings()?.department.enabled) return dept;
   return null;
 }
 
 function popoverKindFor(anchor: HTMLElement): PopoverKind | null {
   if (anchor.classList.contains("op-board-ext-priority")) return "priority";
   if (anchor.classList.contains("op-board-ext-sp")) return "sp";
+  if (anchor.classList.contains("op-board-ext-dept-slot")) return "department";
   return "assignee";
 }
 
@@ -191,6 +198,18 @@ async function openPopover(kind: PopoverKind, workPackageId: number, anchor: HTM
       return;
     }
     renderAssigneeList(popover, workPackageId, enrichment, assignees);
+    positionPopover(popover, anchor);
+    return;
+  }
+
+  if (kind === "department") {
+    const field = host.getSettings()?.department.field.trim() || "customField2";
+    popover.innerHTML = `<div class="op-board-ext-edit-popover-loading">Загрузка…</div>`;
+    const options = await ensureDepartmentOptions(field);
+    if (!activePopover || activePopover.kind !== "department" || activePopover.workPackageId !== workPackageId) {
+      return;
+    }
+    renderDepartmentList(popover, workPackageId, enrichment, options);
     positionPopover(popover, anchor);
     return;
   }
@@ -332,6 +351,92 @@ function renderAssigneeList(
   }
 
   popover.appendChild(list);
+}
+
+function optionHrefFor(value: string, href?: string): string {
+  if (href && href.trim()) return href.trim();
+  return `/api/v3/custom_options/${value}`;
+}
+
+function renderDepartmentList(
+  popover: HTMLElement,
+  workPackageId: number,
+  enrichment: CardEnrichment,
+  options: PopupSelectOption[],
+): void {
+  popover.replaceChildren();
+  const list = document.createElement("div");
+  list.className = "op-board-ext-edit-list";
+  list.setAttribute("role", "listbox");
+
+  const currentId = enrichment.workPackage.departmentOptionId;
+  const currentLabel = enrichment.workPackage.department;
+
+  const addOption = (href: string | null, label: string, optionId: string | null): void => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "op-board-ext-edit-option";
+    const isCurrent = (currentId ?? null) === (optionId ?? null);
+    if (isCurrent) btn.classList.add("op-board-ext-edit-option--active");
+    btn.setAttribute("role", "option");
+
+    const label_ = document.createElement("span");
+    label_.textContent = label;
+    btn.appendChild(label_);
+
+    btn.addEventListener("click", (event) => {
+      stopCardOpen(event);
+      if (isCurrent) {
+        closePopover();
+        return;
+      }
+      closePopover();
+      void applyPatch(workPackageId, { departmentHref: href });
+    });
+    list.appendChild(btn);
+  };
+
+  addOption(null, "Не выбран", null);
+  for (const option of options) {
+    addOption(optionHrefFor(option.value, option.href), option.label, option.value);
+  }
+
+  if (currentId && !options.some((option) => option.value === currentId)) {
+    addOption(optionHrefFor(currentId), currentLabel || currentId, currentId);
+  }
+
+  popover.appendChild(list);
+}
+
+async function ensureDepartmentOptions(field: string): Promise<PopupSelectOption[]> {
+  if (departmentOptionsCache && departmentOptionsField === field) return departmentOptionsCache;
+  if (departmentOptionsInflight && departmentOptionsField === field) return departmentOptionsInflight;
+
+  const settings = host?.getSettings();
+  if (!settings) return [];
+
+  departmentOptionsField = field;
+  departmentOptionsInflight = (async () => {
+    const response = await sendMessage<BackgroundResponse>({
+      type: "GET_DEPARTMENT_OPTIONS",
+      connection: settings.connection,
+      departmentField: field,
+    });
+    if (!response.ok || !("departmentOptions" in response)) {
+      throw new Error(!response.ok ? response.error : "No department options payload");
+    }
+    departmentOptionsCache = response.departmentOptions;
+    return departmentOptionsCache;
+  })()
+    .catch((error) => {
+      console.warn(`${LOG} load department options failed`, error);
+      return [] as PopupSelectOption[];
+    })
+    .finally(() => {
+      departmentOptionsInflight = null;
+    });
+
+  return departmentOptionsInflight;
 }
 
 function renderSpEditor(

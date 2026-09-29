@@ -96,6 +96,7 @@ export async function ensureWorkPackages(
     const fetchPromise = fetchWorkPackagesByIds(client, toFetch, {
       departmentField: settings.department.field,
       storyPointsField: settings.storyPoints.field,
+      reviewField: settings.review.field,
     })
       .then((fetched) => {
         for (const [id, wp] of fetched) {

@@ -1,6 +1,7 @@
 import type { CardEnrichment, Settings } from "../shared/types";
 import { contrastTextColor, formatPriorityLabel } from "../shared/widgets/priority";
 import { reworkSeverity } from "../shared/widgets/reworkReturns";
+import { REVIEW_COLOR_LABELS } from "../shared/widgets/review";
 import {
   applyDepartmentAfterId,
   cleanupLegacyNodes,
@@ -8,6 +9,7 @@ import {
   ensureBlockersSlot,
   ensureCiSlot,
   ensurePrioritySlot,
+  ensureReviewSlot,
   ensureReworkSlot,
   ensureSpSlot,
   ensureTimeSlot,
@@ -27,6 +29,12 @@ const LIGHTBULB_SVG = `
 const CI_SVG = `
 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <path fill-rule="evenodd" clip-rule="evenodd" d="M13.4142 3.82843C12.6332 3.04738 11.3668 3.04738 10.5858 3.82843L9.91421 4.5L11.482 6.06774C11.6472 6.02356 11.8208 6 12 6C13.1046 6 14 6.89543 14 8C14 8.17916 13.9764 8.35282 13.9323 8.51804L15.982 10.5677C16.1472 10.5236 16.3208 10.5 16.5 10.5C17.6046 10.5 18.5 11.3954 18.5 12.5C18.5 13.6046 17.6046 14.5 16.5 14.5C15.3954 14.5 14.5 13.6046 14.5 12.5C14.5 12.3208 14.5236 12.1472 14.5677 11.982L13 10.4142V15.2676C13.5978 15.6134 14 16.2597 14 17C14 18.1046 13.1046 19 12 19C10.8954 19 10 18.1046 10 17C10 16.2597 10.4022 15.6134 11 15.2676V9.73244C10.4022 9.38663 10 8.74028 10 8C10 7.82084 10.0236 7.64718 10.0677 7.48196L8.5 5.91421L3.82843 10.5858C3.04738 11.3668 3.04738 12.6332 3.82843 13.4142L10.5858 20.1716C11.3668 20.9526 12.6332 20.9526 13.4142 20.1716L20.1716 13.4142C20.9526 12.6332 20.9526 11.3668 20.1716 10.5858L13.4142 3.82843ZM9.17157 2.41421C10.7337 0.852115 13.2663 0.852119 14.8284 2.41422L21.5858 9.17157C23.1479 10.7337 23.1479 13.2663 21.5858 14.8284L14.8284 21.5858C13.2663 23.1479 10.7337 23.1479 9.17157 21.5858L2.41421 14.8284C0.852115 13.2663 0.852119 10.7337 2.41422 9.17157L9.17157 2.41421Z" fill="currentColor"></path>
+</svg>
+`.trim();
+
+const COPILOT_SVG = `
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M23.922 16.997C23.061 18.492 18.063 22.02 12 22.02 5.937 22.02.939 18.492.078 16.997A.641.641 0 0 1 0 16.741v-2.869a.883.883 0 0 1 .053-.22c.372-.935 1.347-2.292 2.605-2.656.167-.429.414-1.055.644-1.517a10.098 10.098 0 0 1-.052-1.086c0-1.331.282-2.499 1.132-3.368.397-.406.89-.717 1.474-.952C7.255 2.937 9.248 1.98 11.978 1.98c2.731 0 4.767.957 6.166 2.093.584.235 1.077.546 1.474.952.85.869 1.132 2.037 1.132 3.368 0 .368-.014.733-.052 1.086.23.462.477 1.088.644 1.517 1.258.364 2.233 1.721 2.605 2.656a.841.841 0 0 1 .053.22v2.869a.641.641 0 0 1-.078.256Zm-11.75-5.992h-.344a4.359 4.359 0 0 1-.355.508c-.77.947-1.918 1.492-3.508 1.492-1.725 0-2.989-.359-3.782-1.259a2.137 2.137 0 0 1-.085-.104L4 11.746v6.585c1.435.779 4.514 2.179 8 2.179 3.486 0 6.565-1.4 8-2.179v-6.585l-.098-.104s-.033.045-.085.104c-.793.9-2.057 1.259-3.782 1.259-1.59 0-2.738-.545-3.508-1.492a4.359 4.359 0 0 1-.355-.508Zm2.328 3.25c.549 0 1 .451 1 1v2c0 .549-.451 1-1 1-.549 0-1-.451-1-1v-2c0-.549.451-1 1-1Zm-5 0c.549 0 1 .451 1 1v2c0 .549-.451 1-1 1-.549 0-1-.451-1-1v-2c0-.549.451-1 1-1Zm3.313-6.185c.136 1.057.403 1.913.878 2.497.442.544 1.134.938 2.344.938 1.573 0 2.292-.337 2.657-.751.384-.435.558-1.15.558-2.361 0-1.14-.243-1.847-.705-2.319-.477-.488-1.319-.862-2.824-1.025-1.487-.161-2.192.138-2.533.529-.269.307-.437.808-.438 1.578v.021c0 .265.021.562.063.893Zm-1.626 0c.042-.331.063-.628.063-.894v-.02c-.001-.77-.169-1.271-.438-1.578-.341-.391-1.046-.69-2.533-.529-1.505.163-2.347.537-2.824 1.025-.462.472-.705 1.179-.705 2.319 0 1.211.175 1.926.558 2.361.365.414 1.084.751 2.657.751 1.21 0 1.902-.394 2.344-.938.475-.584.742-1.44.878-2.497Z" fill="currentColor"></path>
 </svg>
 `.trim();
 
@@ -63,8 +71,12 @@ export function diagnoseRestoreReasons(
   settings: Settings,
 ): string[] {
   const reasons: string[] = [];
-  if (settings.department.enabled && enrichment.departmentLabel) {
-    if (!root.querySelector(".op-board-ext-dept-slot")) reasons.push("missing-dept-slot");
+  if (settings.department.enabled) {
+    // Only expect the slot when the native project-name node exists on the card.
+    const hasProjectName = root.querySelector(".op-wp-single-card--content-project-name") != null;
+    if (hasProjectName && !root.querySelector(".op-board-ext-dept-slot")) {
+      reasons.push("missing-dept-slot");
+    }
   }
   if (settings.priority.enabled && enrichment.priorityPosition != null) {
     if (!visibleWidget(root, ".op-board-ext-priority")) reasons.push("missing-priority");
@@ -75,6 +87,9 @@ export function diagnoseRestoreReasons(
   }
   if (enrichment.ciSummary && enrichment.ciSummary.total > 0) {
     if (!visibleWidget(root, ".op-board-ext-ci")) reasons.push("missing-ci");
+  }
+  if (settings.review.enabled && enrichment.reviewColor) {
+    if (!visibleWidget(root, ".op-board-ext-review")) reasons.push("missing-review");
   }
   if (settings.reworkReturns.enabled && enrichment.reworkReturns != null && enrichment.reworkReturns > 0) {
     if (!visibleWidget(root, ".op-board-ext-rework")) reasons.push("missing-rework");
@@ -91,7 +106,7 @@ export function diagnoseRestoreReasons(
     reasons.length === 0 &&
     root.hasAttribute("data-op-ext-fp") &&
     !root.querySelector(
-      ".op-board-ext-priority, .op-board-ext-assignee-avatar, .op-board-ext-sp, .op-board-ext-ci, .op-board-ext-rework, .op-board-ext-blockers, .op-board-ext-time",
+      ".op-board-ext-priority, .op-board-ext-assignee-avatar, .op-board-ext-sp, .op-board-ext-ci, .op-board-ext-review, .op-board-ext-rework, .op-board-ext-blockers, .op-board-ext-time",
     )
   ) {
     reasons.push("wiped-all");
@@ -106,6 +121,7 @@ const WIDGET_PROBE_SELECTORS = [
   "avatar:.op-board-ext-assignee-avatar",
   "sp:.op-board-ext-sp",
   "ci:.op-board-ext-ci",
+  "review:.op-board-ext-review",
   "rework:.op-board-ext-rework",
   "blockers:.op-board-ext-blockers",
   "time:.op-board-ext-time",
@@ -152,6 +168,7 @@ function enrichmentFingerprint(enrichment: CardEnrichment, settings: Settings): 
       ? `${enrichment.priorityPosition}:${enrichment.priorityColor}:${enrichment.workPackage.priorityId}`
       : "",
     settings.storyPoints.enabled ? String(enrichment.storyPoints ?? "") : "",
+    settings.review.enabled ? `${enrichment.reviewColor ?? ""}:${enrichment.reviewStatusLabel}` : "",
     `${enrichment.workPackage.assigneeId ?? ""}:${enrichment.workPackage.assigneeHref ?? ""}:${enrichment.workPackage.assigneeAvatarUrl ?? ""}`,
     enrichment.ciSummary
       ? `${enrichment.ciSummary.successful}/${enrichment.ciSummary.total}/${enrichment.ciSummary.allSuccessful}`
@@ -176,6 +193,14 @@ function createCiIcon(): HTMLElement {
   icon.className = "op-board-ext-ci-icon";
   icon.setAttribute("aria-hidden", "true");
   icon.innerHTML = CI_SVG;
+  return icon;
+}
+
+function createReviewIcon(): HTMLElement {
+  const icon = document.createElement("span");
+  icon.className = "op-board-ext-review-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = COPILOT_SVG;
   return icon;
 }
 
@@ -269,6 +294,23 @@ function paintLazyWidgets(
     } else {
       ci.replaceChildren();
       hideWidget(ci);
+    }
+
+    const review = ensureReviewSlot(assignee);
+    const reviewColor = settings.review.enabled ? enrichment.reviewColor : null;
+    if (reviewColor) {
+      review.className = `op-board-ext-review op-board-ext-review--${reviewColor}`;
+      review.title = `Review AI: ${enrichment.reviewStatusLabel || REVIEW_COLOR_LABELS[reviewColor]}`;
+      const needsPainting =
+        review.getAttribute(SHOWN_ATTR) !== "1" ||
+        review.querySelector(".op-board-ext-review-icon") == null;
+      if (needsPainting) {
+        review.replaceChildren(createReviewIcon());
+      }
+      revealWidget(review, enterDelay + 90);
+    } else {
+      review.replaceChildren();
+      hideWidget(review);
     }
 
     const rework = ensureReworkSlot(assignee);
@@ -399,7 +441,8 @@ export function renderCard(
   const deptSlot = card.root.querySelector<HTMLElement>(
     ".op-wp-single-card--content-project-name.op-board-ext-dept-slot",
   );
-  if (deptSlot && settings.department.enabled && enrichment.departmentLabel) {
+  if (deptSlot && settings.department.enabled) {
+    deptSlot.dataset.workPackageId = String(card.workPackageId);
     revealWidget(deptSlot, enterDelay);
   }
 
@@ -476,11 +519,14 @@ export function teardownCard(root: HTMLElement): void {
   cleanupLegacyNodes(root);
   root
     .querySelectorAll(
-      ".op-board-ext-dept, .op-board-ext-priority, .op-board-ext-sp, .op-board-ext-ci, .op-board-ext-rework, .op-board-ext-blockers, .op-board-ext-time, .op-board-ext-assignee-row, .op-board-ext-assignee-placeholder, .op-board-ext-assignee-avatar",
+      ".op-board-ext-dept, .op-board-ext-priority, .op-board-ext-sp, .op-board-ext-ci, .op-board-ext-review, .op-board-ext-rework, .op-board-ext-blockers, .op-board-ext-time, .op-board-ext-assignee-row, .op-board-ext-assignee-placeholder, .op-board-ext-assignee-avatar",
     )
     .forEach((el) => el.remove());
   root.querySelectorAll(".op-board-ext-hide-project, .op-board-ext-dept-slot").forEach((el) => {
     el.classList.remove("op-board-ext-hide-project", "op-board-ext-dept-slot");
+    el.classList.remove("op-board-ext-dept-slot--empty", "op-board-ext-dept-slot--editable");
+    el.removeAttribute("data-work-package-id");
+    el.removeAttribute("title");
   });
   root.classList.remove("op-board-ext-card");
   root.removeAttribute("data-op-ext-fp");

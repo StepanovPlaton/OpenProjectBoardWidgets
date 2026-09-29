@@ -76,6 +76,34 @@
 
       <section class="section">
         <label class="check">
+          <input id="reviewEnabled" type="checkbox" />
+          Review AI (GitHub Copilot) — иконка после CI
+        </label>
+        <label>
+          Поле статуса review
+          <select id="reviewField"></select>
+        </label>
+        <div class="review-ids">
+          <label>
+            ID зелёного
+            <input id="reviewGreenId" type="text" inputmode="numeric" placeholder="6" spellcheck="false" />
+          </label>
+          <label>
+            ID жёлтого
+            <input id="reviewYellowId" type="text" inputmode="numeric" placeholder="7" spellcheck="false" />
+          </label>
+          <label>
+            ID красного
+            <input id="reviewRedId" type="text" inputmode="numeric" placeholder="8" spellcheck="false" />
+          </label>
+        </div>
+        <p class="hint">
+          Сравнивается ID опции кастомного поля (например, хвост href <code>/custom_options/6</code>).
+        </p>
+      </section>
+
+      <section class="section">
+        <label class="check">
           <input id="blockersEnabled" type="checkbox" />
           Блокеры (все связи)
         </label>
