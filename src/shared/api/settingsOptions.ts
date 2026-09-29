@@ -41,25 +41,48 @@ function parseCustomFieldOption(raw: unknown): PopupSelectOption | null {
   const label = labelCandidates.find((value): value is string => typeof value === "string" && value.trim().length > 0);
 
   if (!id || !label) return null;
-  const href = typeof raw.href === "string" && raw.href.trim() ? raw.href.trim() : undefined;
+
+  const selfHref =
+    isRecord(raw._links) && isRecord(raw._links.self) && typeof raw._links.self.href === "string"
+      ? raw._links.self.href.trim()
+      : "";
+  const href =
+    typeof raw.href === "string" && raw.href.trim() ? raw.href.trim() : selfHref || undefined;
   return href ? { value: id, label, href } : { value: id, label };
+}
+
+/** Collect candidate option arrays from a schema field, a collection, or a nested collection. */
+function embeddedOptionArrays(raw: Record<string, unknown>): unknown[][] {
+  const arrays: unknown[][] = [];
+  const keys = ["customOptions", "allowedValues", "possibleValues", "elements"];
+
+  const visit = (source: Record<string, unknown>): void => {
+    for (const key of keys) {
+      const value = source[key];
+      if (Array.isArray(value)) {
+        arrays.push(value);
+      } else if (isRecord(value)) {
+        const nested = isRecord(value._embedded) ? value._embedded : value;
+        for (const nestedKey of keys) {
+          const nestedValue = nested[nestedKey];
+          if (Array.isArray(nestedValue)) arrays.push(nestedValue);
+        }
+      }
+    }
+  };
+
+  visit(raw);
+  if (isRecord(raw._embedded)) visit(raw._embedded);
+  return arrays;
 }
 
 function parseEmbeddedOptions(raw: unknown): PopupSelectOption[] {
   if (!isRecord(raw)) return [];
 
-  const arrays = [
-    raw.customOptions,
-    raw.allowedValues,
-    raw.possibleValues,
-    isRecord(raw._embedded) ? raw._embedded.customOptions : null,
-    isRecord(raw._embedded) ? raw._embedded.allowedValues : null,
-    isRecord(raw._embedded) ? raw._embedded.elements : null,
-  ];
-
-  for (const candidate of arrays) {
-    if (!Array.isArray(candidate)) continue;
-    const parsed = candidate.map(parseCustomFieldOption).filter((value): value is PopupSelectOption => value != null);
+  for (const candidate of embeddedOptionArrays(raw)) {
+    const parsed = candidate
+      .map(parseCustomFieldOption)
+      .filter((value): value is PopupSelectOption => value != null);
     if (parsed.length > 0) return parsed;
   }
 
@@ -87,34 +110,69 @@ function dedupeFieldOptions(options: PopupFieldOption[]): PopupFieldOption[] {
 async function fetchWorkPackageSchemas(client: OpenProjectClient): Promise<SchemaLike[]> {
   const collection = await client.getJson<WorkPackageCollection>("/api/v3/work_packages?pageSize=50");
   const embeddedSchemas = Object.values(collection._embedded?.schemas ?? {}).filter(isRecord);
-  const seen = new Set<string>();
-  const result: SchemaLike[] = [];
+
+  // Embedded schemas are summaries: their `allowedValues` is stripped, so we must
+  // fetch the full schema by its self href. Keep embedded as a fallback only.
+  const embeddedByHref = new Map<string, SchemaLike>();
+  const hrefs = new Set<string>();
+  const fallbackOnly: SchemaLike[] = [];
 
   for (const schema of embeddedSchemas) {
     const href = linkHref(schema, "self");
-    if (href) seen.add(href);
-    result.push(schema);
-  }
-
-  const schemaHrefs = new Set<string>();
-  for (const wp of collection._embedded?.elements ?? []) {
-    if (!isRecord(wp)) continue;
-    const href = linkHref(wp, "schema");
-    if (href) schemaHrefs.add(href);
-  }
-
-  for (const href of schemaHrefs) {
-    if (seen.has(href)) continue;
-    try {
-      const schema = await client.getJson<SchemaLike>(href);
-      result.push(schema);
-      seen.add(href);
-    } catch {
-      // Ignore inaccessible schema variants.
+    if (href) {
+      hrefs.add(href);
+      embeddedByHref.set(href, schema);
+    } else {
+      fallbackOnly.push(schema);
     }
   }
 
+  for (const wp of collection._embedded?.elements ?? []) {
+    if (!isRecord(wp)) continue;
+    const href = linkHref(wp, "schema");
+    if (href) hrefs.add(href);
+  }
+
+  const result: SchemaLike[] = [...fallbackOnly];
+  const hrefList = [...hrefs];
+
+  const fetched = await mapLimit(hrefList, 5, async (href) => {
+    try {
+      const full = await client.getJson<SchemaLike>(href);
+      return isRecord(full) ? full : (embeddedByHref.get(href) ?? null);
+    } catch {
+      return embeddedByHref.get(href) ?? null;
+    }
+  });
+
+  for (const schema of fetched) {
+    if (schema) result.push(schema);
+  }
+
+  console.log("[op-board-ext:api] fetched work package schemas", {
+    embedded: embeddedSchemas.length,
+    hrefs: hrefList.length,
+    resolved: result.length,
+  });
+
   return result;
+}
+
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let index = 0;
+  async function worker(): Promise<void> {
+    while (index < items.length) {
+      const current = index++;
+      results[current] = await fn(items[current]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
 }
 
 async function fetchWorkPackageSamples(client: OpenProjectClient): Promise<WorkPackageLike[]> {
@@ -275,12 +333,12 @@ function collectDepartmentValuesFromSamples(samples: WorkPackageLike[], departme
     const links = isRecord(wp._links) ? wp._links : null;
     if (links && isRecord(links[departmentField])) {
       const link = links[departmentField];
-      const href =
-        typeof link.href === "string" ? link.href.replace(/\/+$/, "").split("/").pop() ?? "" : "";
+      const linkHref = typeof link.href === "string" && link.href.trim() ? link.href.trim() : "";
+      const tail = linkHref ? linkHref.replace(/\/+$/, "").split("/").pop() ?? "" : "";
       const title = typeof link.title === "string" ? link.title.trim() : "";
-      const linkHref = typeof link.href === "string" && link.href.trim() ? link.href.trim() : undefined;
-      if (href && title) {
-        options.push(linkHref ? { value: href, label: title, href: linkHref } : { value: href, label: title });
+      if (title) {
+        const value = tail || title;
+        options.push(linkHref ? { value, label: title, href: linkHref } : { value, label: title });
         continue;
       }
     }
@@ -376,10 +434,20 @@ export async function fetchDepartmentOptions(
 
   const schemas = await fetchWorkPackageSchemas(client);
   let values = await valuesForDepartmentField(client, schemas, field);
+  let source = "schema";
   if (values.length === 0) {
     // Fallback: read real option links from sample work packages (as settings popup does).
     const samples = await fetchWorkPackageSamples(client);
     values = collectDepartmentValuesFromSamples(samples, field);
+    source = "samples";
   }
+
+  console.log("[op-board-ext:api] fetchDepartmentOptions", {
+    field,
+    schemaCount: schemas.length,
+    source,
+    count: values.length,
+  });
+
   return values;
 }

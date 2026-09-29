@@ -40,6 +40,7 @@ import { resolveReviewColor } from "../shared/widgets/review";
 import { countReworkReturns } from "../shared/widgets/reworkReturns";
 import {
   clearWorkPackageStore,
+  collectCachedDepartmentOptions,
   ensureWorkPackages,
   invalidateWorkPackages,
   peekWorkPackage,
@@ -438,13 +439,35 @@ async function resolveBoardSprint(boardId: number): Promise<string[]> {
 }
 
 async function getSettingsOptions(message: Extract<BackgroundRequest, { type: "GET_SETTINGS_OPTIONS" }>) {
-  return fetchPopupSettingsOptions(message.connection, message.departmentField);
+  const options = await fetchPopupSettingsOptions(message.connection, message.departmentField);
+  if (options.departmentValues.length === 0) {
+    const cached = collectCachedDepartmentOptions();
+    if (cached.length > 0) {
+      console.log("[op-board-ext:bg] settings department values from cache", { count: cached.length });
+      options.departmentValues = cached;
+    }
+  }
+  return options;
 }
 
 async function getDepartmentOptions(
   message: Extract<BackgroundRequest, { type: "GET_DEPARTMENT_OPTIONS" }>,
 ) {
-  return fetchDepartmentOptions(message.connection, message.departmentField);
+  const options = await fetchDepartmentOptions(message.connection, message.departmentField);
+  if (options.length > 0) {
+    console.log("[op-board-ext:bg] department options resolved", {
+      field: message.departmentField,
+      count: options.length,
+    });
+    return options;
+  }
+
+  const cached = collectCachedDepartmentOptions();
+  console.log("[op-board-ext:bg] department options fallback to cache", {
+    field: message.departmentField,
+    count: cached.length,
+  });
+  return cached.length > 0 ? cached : options;
 }
 
 function toErrorResponse(error: unknown): BackgroundResponse {

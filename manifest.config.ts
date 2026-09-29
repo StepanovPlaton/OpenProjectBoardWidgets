@@ -6,7 +6,7 @@ export default defineManifest({
   manifest_version: 3,
   name: "OpenProject Board Widgets",
   description: "Adds informative widgets to OpenProject board cards via the REST API.",
-  version: "0.1.2",
+  version: "0.1.3",
   action: {
     default_popup: "src/popup/index.html",
     default_title: "OpenProject Board Widgets",

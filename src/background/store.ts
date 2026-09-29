@@ -1,6 +1,6 @@
 import type { OpenProjectClient } from "../shared/api/client";
 import { fetchWorkPackagesByIds } from "../shared/api/workPackages";
-import type { Settings, WorkPackageSummary } from "../shared/types";
+import type { PopupSelectOption, Settings, WorkPackageSummary } from "../shared/types";
 
 const WP_TTL_MS = 5 * 60_000;
 
@@ -50,6 +50,25 @@ export function putWorkPackage(wp: WorkPackageSummary): void {
 
 export function workPackageStoreStats(): { cached: number; inflight: number } {
   return { cached: wpCache.size, inflight: wpInflight.size };
+}
+
+/**
+ * Department options collected from work packages already in the store (e.g. board cards).
+ * Last-resort fallback when the field's allowed values cannot be resolved via the API.
+ */
+export function collectCachedDepartmentOptions(): PopupSelectOption[] {
+  const byLabel = new Map<string, PopupSelectOption>();
+  for (const entry of wpCache.values()) {
+    const { department, departmentHref, departmentOptionId } = entry.value;
+    if (!department.trim()) continue;
+    if (byLabel.has(department)) continue;
+    const value = departmentOptionId || department;
+    byLabel.set(
+      department,
+      departmentHref ? { value, label: department, href: departmentHref } : { value, label: department },
+    );
+  }
+  return [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label, "ru"));
 }
 
 /**
